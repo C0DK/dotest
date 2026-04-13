@@ -1,12 +1,12 @@
 namespace Dotest;
 
-/// <summary>A single test case result parsed from a TRX file.</summary>
+/// <summary>A single test case result from the VSTest TranslationLayer.</summary>
 public record TestResult(
     string ClassName,
     string Name,
     string FullName,
     string Outcome,      // "Passed" | "Failed" | "Skipped"
-    string Duration,     // HH:MM:SS.NNNNNNN as reported by VSTest
+    TimeSpan Duration,
     string ErrorMessage,
     string StackTrace,
     string StdOut

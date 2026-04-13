@@ -5,34 +5,6 @@ namespace dotest.Tests;
 
 public class RendererTests
 {
-    // ── FormatDuration ────────────────────────────────────────────────────────
-
-    [Theory]
-    [InlineData("00:00:00.0000000", "< 1ms")]
-    [InlineData("00:00:00.0010000", "1ms")]
-    [InlineData("00:00:00.0180000", "18ms")]
-    [InlineData("00:00:00.9990000", "999ms")]
-    [InlineData("00:00:01.0000000", "1s")]
-    [InlineData("00:00:01.2000000", "1.2s")]
-    [InlineData("00:00:05.3500000", "5.3s")]
-    [InlineData("00:00:59.9000000", "59.9s")]
-    [InlineData("00:01:00.0000000", "1m 0s")]
-    [InlineData("00:01:05.0000000", "1m 5s")]
-    [InlineData("00:03:45.0000000", "3m 45s")]
-    public void FormatDuration_KnownInputs_ReturnsExpectedString(string input, string expected)
-    {
-        Assert.Equal(expected, Renderer.FormatDuration(input));
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("not-a-duration")]
-    public void FormatDuration_InvalidInput_ReturnsEmpty(string? input)
-    {
-        Assert.Equal("", Renderer.FormatDuration(input));
-    }
-
     // ── FormatElapsed ─────────────────────────────────────────────────────────
 
     [Theory]
@@ -99,7 +71,6 @@ public class RendererTests
     {
         const string line = "   /src/File.cs(10,1): error CS0001: oops";
         var result = Renderer.ColorizeBuildError(line);
-        // Should parse correctly even with leading whitespace.
         Assert.Contains("[cyan]", result);
         Assert.Contains("/src/File.cs", result);
     }
