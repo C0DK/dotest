@@ -136,7 +136,8 @@ static void RunTests(List<string> assemblies, string? filter, Action<TestResult>
     }
     catch (Exception ex)
     {
-        AnsiConsole.MarkupLine($"[red]Error running tests: {Markup.Escape(ex.Message)}[/]");
+        for (var e = ex; e is not null; e = e.InnerException)
+            AnsiConsole.MarkupLine($"[red]Error running tests: {Markup.Escape(e.Message)}[/]");
     }
     finally
     {

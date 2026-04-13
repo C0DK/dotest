@@ -13,7 +13,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotest</ToolCommandName>
     <PackageId>dotest</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Authors>dotest contributors</Authors>
     <Description>A pretty wrapper around dotnet test with live progress, colorized failures, and compact summaries.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -34,8 +34,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.TestPlatform.ObjectModel" Version="17.14.1" />
-    <PackageReference Include="Microsoft.TestPlatform.TranslationLayer" Version="17.14.1" />
+    <PackageReference Include="Microsoft.TestPlatform.ObjectModel" Version="18.0.1" />
+    <PackageReference Include="Microsoft.TestPlatform.TranslationLayer" Version="18.0.1" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="Spectre.Console" Version="0.49.1" />
   </ItemGroup>
 
