@@ -77,14 +77,24 @@ public static class Renderer
             var tree = new Tree($"  [cyan]{Esc(g.Key)}[/]");
             foreach (var t in g)
             {
-                var icon = t.Outcome switch
+                var color = t.Outcome switch
                 {
-                    "Passed" => "[green]\u2713[/]",   // ✓
-                    "Failed" => "[red]\u2717[/]",     // ✗
-                    _        => "[yellow]\u25cb[/]",  // ○
+                    "Passed" => "green",
+                    "Failed" => "red",
+                    _        => "yellow",
                 };
-                var dur  = FormatElapsed(t.Duration);
-                var node = tree.AddNode($"{icon} {Esc(t.Name)} [grey]{Esc(dur)}[/]");
+                var glyph = t.Outcome switch
+                {
+                    "Passed" => "\u2713",   // ✓
+                    "Failed" => "\u2717",   // ✗
+                    _        => "\u25cb",   // ○
+                };
+                var dur         = FormatElapsed(t.Duration);
+                var prefix      = t.ClassName.Length > 0 ? t.ClassName + "." : "";
+                var displayName = t.Name.StartsWith(prefix, StringComparison.Ordinal)
+                    ? t.Name[prefix.Length..]
+                    : t.Name;
+                var node = tree.AddNode($"[{color}]{Esc(glyph)} {Esc(dur)}[/] {Esc(displayName)}");
 
                 if (!string.IsNullOrWhiteSpace(t.StdOut))
                 {
