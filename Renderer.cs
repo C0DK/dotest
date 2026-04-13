@@ -89,7 +89,7 @@ public static class Renderer
                     "Failed" => "\u2717",   // ✗
                     _        => "\u25cb",   // ○
                 };
-                var dur         = FormatElapsed(t.Duration);
+                var dur         = FormatElapsed(t.Duration).PadRight(6);
                 var prefix      = t.ClassName.Length > 0 ? t.ClassName + "." : "";
                 var displayName = t.Name.StartsWith(prefix, StringComparison.Ordinal)
                     ? t.Name[prefix.Length..]
