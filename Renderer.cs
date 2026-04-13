@@ -7,9 +7,9 @@ namespace Dotest;
 /// All console output for dotest. Failure boxes, verbose tree, summary line,
 /// and build-error colorization.
 ///
-/// Failure box uses manual ANSI-aware rendering to embed the test name and
-/// duration badge directly into the top border, matching the nushell original.
-/// The verbose tree delegates to Spectre.Console Tree for polished connectors.
+/// Failure boxes are rendered manually (not Spectre.Console Panel) to embed the
+/// test name and duration badge directly into the top border and to add precise
+/// right-border alignment. The verbose tree delegates to Spectre.Console Tree.
 /// </summary>
 public static class Renderer
 {
@@ -20,33 +20,35 @@ public static class Renderer
     private static readonly Regex BuildErrorRx =
         new(@"^(.+?)\((\d+),\d+\): error (\w+): (.+)$", RegexOptions.Compiled);
 
+    // Strips ANSI escape codes for visible-length calculation.
+    private static readonly Regex AnsiCodeRx =
+        new(@"\x1b\[[0-9;]*[a-zA-Z]", RegexOptions.Compiled);
+
     // ── Failure box ──────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Render a failure box styled after the nushell original:
-    ///   ┏━ TestClass.Name  failed after 1.2s ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-    ///   ┃
-    ///   ┃ Error
-    ///   ┃   expected …
-    ///   ┠──────────────────────────────────────────────────────────────────────┨
-    ///   ┃ Output
-    ///   ┃   raw stdout (may contain ANSI codes)
-    ///   ┠──────────────────────────────────────────────────────────────────────┨
-    ///   ┃ Stack Trace
-    ///   ┃   at Method() in /path/File.cs:line 42
-    ///   ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    /// Render a failure box:
+    ///   ┏━ TestClass.Name  failed after 1.2s ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+    ///   ┃                                                                                                ┃
+    ///   ┃ Error                                                                                          ┃
+    ///   ┃   Expected 42 but was 41                                                                       ┃
+    ///   ┠────────────────────────────────────────────────────────────────────────────────────────────────┨
+    ///   ┃ Stack Trace                                                                                    ┃
+    ///   ┃   at Method() in /path/File.cs:line 42                                                        ┃
+    ///   ┃                                                                                                ┃
+    ///   ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
     /// </summary>
     public static void RenderFailure(TestResult t, int termWidth)
     {
-        // inner = characters between the outer border glyphs.
+        // inner = characters between the outer border glyphs ┏ and ┓.
         var inner = Math.Max(termWidth - 2, 20);
 
-        var duration = FormatDuration(t.Duration);
-        var badge    = $" failed after {duration} ";     // plain text for width calc
+        var duration  = FormatDuration(t.Duration);
+        var badge     = $" failed after {duration} ";     // plain text for width calc
         var fullTitle = $" {t.FullName} ";
 
-        // Truncate title so the border never overflows.
-        var maxTitleW = inner - badge.Length - 3;        // 3 = initial ━ + two padding
+        // Truncate title so border never overflows.
+        var maxTitleW = inner - badge.Length - 3;
         var title = fullTitle.Length > maxTitleW && maxTitleW > 4
             ? $" {t.FullName[..(maxTitleW - 4)]}\u2026 "
             : fullTitle;
@@ -60,36 +62,38 @@ public static class Renderer
         AnsiConsole.MarkupLine(
             $"[red]\u250f\u2501[/][bold red]{Esc(title)}{Esc(badge)}[/][red]{rightFill}\u2513[/]");
 
-        // Error section
+        // Empty line after header border.
+        BoxLine("", inner);
+
+        // Error section.
         if (!string.IsNullOrWhiteSpace(t.ErrorMessage))
         {
-            AnsiConsole.MarkupLine("[red]\u2503[/]");
-            AnsiConsole.MarkupLine("[red]\u2503[/] [bold yellow]Error[/]");
-            foreach (var line in SplitLines(t.ErrorMessage))
-                AnsiConsole.MarkupLine($"[red]\u2503[/]   {Esc(line)}");
+            BoxLine(" [bold yellow]Error[/]", inner);
+            foreach (var l in SplitLines(t.ErrorMessage))
+                BoxLine("   " + Esc(l), inner);
         }
 
-        // Output section (stdout may contain raw ANSI from test frameworks —
-        // write the border via Spectre then the content line raw to preserve codes)
+        // Output section (stdout may contain raw ANSI codes — write border via
+        // Spectre then content raw so escape sequences pass through).
         if (!string.IsNullOrWhiteSpace(t.StdOut))
         {
             AnsiConsole.MarkupLine($"[red]\u2520{div}\u2528[/]");
-            AnsiConsole.MarkupLine("[red]\u2503[/] [bold cyan]Output[/]");
-            foreach (var line in SplitLines(t.StdOut))
-            {
-                AnsiConsole.Markup("[red]\u2503[/]   ");
-                Console.WriteLine(line);    // raw — passes ANSI codes through
-            }
+            BoxLine(" [bold cyan]Output[/]", inner);
+            foreach (var l in SplitLines(t.StdOut))
+                BoxRawLine(l, inner);
         }
 
-        // Stack trace section
+        // Stack trace section.
         if (!string.IsNullOrWhiteSpace(t.StackTrace))
         {
             AnsiConsole.MarkupLine($"[red]\u2520{div}\u2528[/]");
-            AnsiConsole.MarkupLine("[red]\u2503[/] [bold magenta]Stack Trace[/]");
-            foreach (var line in SplitLines(t.StackTrace))
-                AnsiConsole.MarkupLine($"[red]\u2503[/]{ColorizeStackFrame(line)}");
+            BoxLine(" [bold magenta]Stack Trace[/]", inner);
+            foreach (var l in SplitLines(t.StackTrace))
+                BoxLine(ColorizeStackFrame(l), inner);
         }
+
+        // Blank line before bottom border (symmetric with the top).
+        BoxLine("", inner);
 
         // Bottom border: ┗━━━━━━━━━━━━┛
         AnsiConsole.MarkupLine($"[red]\u2517{hr}\u251b[/]");
@@ -202,7 +206,7 @@ public static class Renderer
         return FormatElapsed(ts);
     }
 
-    private static string FormatElapsed(TimeSpan ts)
+    internal static string FormatElapsed(TimeSpan ts)
     {
         var ms = (int)ts.TotalMilliseconds;
         if (ms == 0) return "< 1ms";
@@ -216,7 +220,55 @@ public static class Renderer
         return $"{(int)ts.TotalMinutes}m {ts.Seconds}s";
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // ── Box-drawing helpers ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Write one content line inside the failure box with aligned right border:
+    ///   ┃{markup}{padding}┃
+    /// <paramref name="markup"/> may contain Spectre.Console markup; visible length
+    /// is calculated by stripping tags with Markup.Remove().
+    /// </summary>
+    private static void BoxLine(string markup, int inner)
+    {
+        var visible = Markup.Remove(markup);
+        // Truncate if the visible content would overflow.
+        if (visible.Length > inner)
+        {
+            markup  = Esc(visible[..(inner - 1)] + "\u2026");
+            visible = Markup.Remove(markup);
+        }
+        var pad = new string(' ', Math.Max(0, inner - visible.Length));
+        AnsiConsole.MarkupLine($"[red]\u2503[/]{markup}{pad}[red]\u2503[/]");
+    }
+
+    /// <summary>
+    /// Write a raw (ANSI-passthrough) line inside the failure box.
+    /// The border is written via Spectre and the content via Console.Write so
+    /// any ANSI escape codes in test stdout are preserved.
+    /// </summary>
+    private static void BoxRawLine(string raw, int inner, string indent = "   ")
+    {
+        var visLen = AnsiCodeRx.Replace(raw, "").Length;
+        var available = inner - indent.Length - 1; // -1 for right ┃
+
+        string display = raw;
+        if (visLen > available)
+        {
+            // Can't truncate ANSI-coded strings cleanly: strip codes first.
+            display = AnsiCodeRx.Replace(raw, "");
+            if (display.Length > available - 1)
+                display = display[..(available - 1)] + "\u2026";
+            visLen = display.Length;
+        }
+
+        AnsiConsole.Markup("[red]\u2503[/]");
+        Console.Write(indent);
+        Console.Write(display);
+        Console.Write(new string(' ', Math.Max(0, inner - indent.Length - visLen)));
+        AnsiConsole.MarkupLine("[red]\u2503[/]");
+    }
+
+    // ── Misc helpers ──────────────────────────────────────────────────────────
 
     private static string Esc(string s) => Markup.Escape(s);
 

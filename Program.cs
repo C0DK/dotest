@@ -30,7 +30,18 @@ static async Task<int> RunAsync(string[] args)
         }
     }
 
-    // ── Build dotnet test command ─────────────────────────────────────────────
+    // ── Run dotnet test ───────────────────────────────────────────────────────
+    //
+    // We shell out to `dotnet test` (rather than using the VSTest TranslationLayer
+    // directly) because `dotnet test` handles project discovery, building, and
+    // adapter loading automatically — the TranslationLayer requires locating
+    // vstest.console.dll inside the SDK and managing those steps manually.
+    //
+    // Structured results come from the TRX file (adapter-agnostic). The stdout
+    // stream is only read to update the live progress counter and to capture
+    // build errors; the TRX is always the authoritative source of test outcomes.
+    //
+    // See TrxParser.cs for more detail and the TranslationLayer upgrade path.
 
     var trxDir = Path.Combine(Path.GetTempPath(), $"dotest-{Guid.NewGuid():N}");
     Directory.CreateDirectory(trxDir);
@@ -69,8 +80,9 @@ static async Task<int> RunAsync(string[] args)
     var stderrTask = proc.StandardError.ReadToEndAsync();
 
     // Stream stdout line-by-line for live progress.
-    // The NUnit3 adapter emits "  Passed TestName [Xms]" / "  Failed TestName [Xms]"
-    // at default verbosity — count those for the progress counter.
+    // Test adapters typically emit "  Passed TestName" / "  Failed TestName" lines;
+    // we count these for the in-flight counter. Results accuracy always comes from
+    // the TRX file regardless of what the adapter emits here.
     string? line;
     while ((line = await proc.StandardOutput.ReadLineAsync()) is not null)
     {

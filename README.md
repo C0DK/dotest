@@ -11,14 +11,15 @@ becomes
 
 ```
 ┏━ Portland.Worker.Test.CreateBacktestTests.ShouldReturnPositions  failed after 1.2s ━━━━━━━━━━┓
-┃
-┃ Error
-┃   Expected: 3 items
-┃   But was:  2 items
-┠──────────────────────────────────────────────────────────────────────────────────────────────┨
-┃ Stack Trace
-┃   at CreateBacktestTests.ShouldReturnPositions() in /src/Tests/CreateBacktestTests.cs:line 84
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+┃                                                                                               ┃
+┃ Error                                                                                         ┃
+┃   Expected: 3 items                                                                           ┃
+┃   But was:  2 items                                                                           ┃
+┠───────────────────────────────────────────────────────────────────────────────────────────────┨
+┃ Stack Trace                                                                                   ┃
+┃   at CreateBacktestTests.ShouldReturnPositions() in /src/Tests/CreateBacktestTests.cs:line 84┃
+┃                                                                                               ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 PASS  39 passed, 1 failed, 3 skipped  4.1s
 ```
@@ -57,7 +58,7 @@ dotest
 ```sh
 git clone https://github.com/c0dk/dotest
 cd dotest
-dotnet pack -c Release
+dotnet pack -c Release -o nupkg
 dotnet tool install -g --add-source ./nupkg dotest
 ```
 
@@ -107,25 +108,21 @@ dotest CreateBacktest           # matches specific test classes or methods
 
 ## How it works
 
-`dotest` runs:
+`dotest` runs `dotnet test` with a TRX logger:
 
 ```
-dotnet test --nologo --results-directory <tmpdir> --logger "trx;LogFilePrefix=res" [--filter FullyQualifiedName~<filter>]
+dotnet test --nologo --results-directory <tmpdir> --logger "trx;LogFilePrefix=res" [--filter ...]
 ```
 
-It streams stdout line-by-line to drive the live progress counter (the NUnit3
-adapter emits `Passed TestName` / `Failed TestName` lines at default verbosity).
-After the process exits, it parses the TRX XML file for structured results
-(error messages, stack traces, stdout, class names) and renders the output.
+Stdout is streamed line-by-line while the process runs to update the live
+progress counter. After the process exits, the TRX result file is parsed for
+structured output — error messages, stack traces, captured stdout, and class
+names. TRX is the VSTest standard format and works with all test adapters
+(NUnit, xUnit, MSTest).
 
-## Notes
-
-- Progress detection relies on lines starting with `Passed ` / `Failed ` as
-  emitted by the NUnit3 test adapter. Other adapters (xUnit, MSTest) may not
-  emit these lines, so the counter will show `building…` the whole time — but
-  results are always correct since they come from the TRX file.
-- The TRX logger is always used; `dotnet test`'s own console output is
-  suppressed and replaced with dotest's rendering.
+> **Note:** A future improvement is to use the VSTest `TranslationLayer`
+> (`VsTestConsoleWrapper`) to receive test events directly in-process, which
+> would provide real-time per-test results without any stdout parsing.
 
 ## License
 

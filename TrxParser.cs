@@ -6,6 +6,16 @@ namespace Dotest;
 /// Parses Visual Studio Test Results (TRX) XML files produced by dotnet test
 /// with --logger "trx;LogFilePrefix=res".
 ///
+/// TRX is the VSTest standard result format — it is written by dotnet test
+/// regardless of which test adapter (NUnit, xUnit, MSTest, …) is in use, so
+/// this parser gives correct, adapter-agnostic results.
+///
+/// The ideal future alternative is the VSTest TranslationLayer
+/// (VsTestConsoleWrapper), which delivers real-time TestResult events
+/// in-process without any file parsing. That approach requires locating
+/// vstest.console.dll inside the installed SDK and wiring up event handlers,
+/// so TRX parsing is used here as the simpler initial implementation.
+///
 /// TRX schema overview:
 ///   TestRun/Results/UnitTestResult  – outcome, duration, per-test output
 ///   TestRun/TestDefinitions/UnitTest/TestMethod[@className]  – class lookup via testId
@@ -26,12 +36,25 @@ public static class TrxParser
         return results;
     }
 
+    /// <summary>Parse TRX XML from a string. Primarily for unit testing.</summary>
+    internal static List<TestResult> ParseContent(string xml)
+    {
+        XDocument doc;
+        try { doc = XDocument.Parse(xml); }
+        catch { return []; }
+        return ParseDocument(doc);
+    }
+
     private static List<TestResult> ParseFile(string path)
     {
         XDocument doc;
         try { doc = XDocument.Load(path); }
         catch { return []; }
+        return ParseDocument(doc);
+    }
 
+    private static List<TestResult> ParseDocument(XDocument doc)
+    {
         var root = doc.Root;
         if (root is null) return [];
 
