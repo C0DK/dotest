@@ -125,13 +125,21 @@ static void RunTests(List<string> assemblies, string? filter, Action<TestResult>
         wrapper.StartSession();
         wrapper.InitializeExtensions([]);
 
-        var runSettings = filter is null
-            ? "<RunSettings/>"
-            : $"<RunSettings><RunConfiguration>" +
-              $"<TestCaseFilter>FullyQualifiedName~{filter}</TestCaseFilter>" +
-              $"</RunConfiguration></RunSettings>";
+        // Discover all test cases, then filter client-side. This is more
+        // reliable than relying on TestCaseFilter in RunSettings, which not
+        // all adapters honour when running from source paths.
+        var discovery = new DiscoveryHandler();
+        wrapper.DiscoverTests(assemblies, "<RunSettings/>", discovery);
 
-        wrapper.RunTests(assemblies, runSettings, new TestRunHandler(onResult));
+        var testCases = filter is null
+            ? discovery.Cases
+            : discovery.Cases
+                .Where(tc => tc.FullyQualifiedName.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+        if (testCases.Count > 0)
+            wrapper.RunTests(testCases, "<RunSettings/>", new TestRunHandler(onResult));
+
         wrapper.EndSession();
     }
     catch (Exception ex)
