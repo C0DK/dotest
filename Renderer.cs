@@ -16,6 +16,11 @@ public static class Renderer
     private static readonly Regex BuildErrorRx =
         new(@"^(.+?)\((\d+),\d+\): error (\w+): (.+)$", RegexOptions.Compiled);
 
+    // Matches all ANSI/VT escape sequences so they can be stripped before
+    // passing test stdout to Spectre.Console, which cannot render raw ANSI.
+    private static readonly Regex AnsiRx =
+        new(@"\x1b\[[0-9;]*[a-zA-Z]", RegexOptions.Compiled);
+
     // ── Failure box ──────────────────────────────────────────────────────────
 
     /// <summary>
@@ -40,7 +45,7 @@ public static class Renderer
         {
             if (sb.Length > 0) sb.AppendLine();
             sb.AppendLine("[bold cyan]Output[/]");
-            foreach (var line in SplitLines(t.StdOut))
+            foreach (var line in SplitLines(StripAnsi(t.StdOut)))
                 sb.AppendLine($"  {Markup.Escape(line)}");
         }
 
@@ -98,16 +103,31 @@ public static class Renderer
                     _        => "\u25cb",   // ○
                 };
                 var dur  = FormatElapsed(t.Duration).PadLeft(6);
-                var node = tree.AddNode($"[{color}]{Esc(glyph)}[/] [grey]{Esc(dur)}[/] {Esc(displayName)}");
-
-                if (!string.IsNullOrWhiteSpace(t.StdOut))
-                {
-                    foreach (var line in SplitLines(t.StdOut))
-                        node.AddNode($"[grey]{Esc(line)}[/]");
-                }
+                tree.AddNode($"[{color}]{Esc(glyph)}[/] [grey]{Esc(dur)}[/] {Esc(displayName)}");
             }
             AnsiConsole.Write(tree);
+
+            // Stdout panels are printed after the tree so raw ANSI codes can be
+            // stripped cleanly without disrupting the tree connectors.
+            foreach (var (t, displayName) in testList.Zip(displayNames))
+            {
+                if (!string.IsNullOrWhiteSpace(t.StdOut))
+                    RenderStdOutPanel(displayName, t.StdOut);
+            }
         }
+    }
+
+    private static void RenderStdOutPanel(string testName, string stdOut)
+    {
+        var content = string.Join("\n",
+            SplitLines(StripAnsi(stdOut)).Select(Esc));
+
+        var panel = new Panel(new Markup(content))
+            .Header($" [grey]{Esc(testName)}[/] ")
+            .BorderColor(Color.Grey)
+            .Expand();
+
+        AnsiConsole.Write(panel);
     }
 
     // ── Summary line ─────────────────────────────────────────────────────────
@@ -181,7 +201,8 @@ public static class Renderer
 
     // ── Misc helpers ──────────────────────────────────────────────────────────
 
-    private static string Esc(string s) => Markup.Escape(s);
+    private static string Esc(string s)      => Markup.Escape(s);
+    private static string StripAnsi(string s) => AnsiRx.Replace(s, "");
 
     private static IEnumerable<string> SplitLines(string s) =>
         s.Trim().Split('\n').Select(l => l.TrimEnd('\r'));
