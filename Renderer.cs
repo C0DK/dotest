@@ -84,7 +84,7 @@ public static class Renderer
                     _        => "[yellow]\u25cb[/]",  // ○
                 };
                 var dur  = FormatElapsed(t.Duration);
-                var node = tree.AddNode($"{icon} {Esc(t.Name)} [grey][{Esc(dur)}][/]");
+                var node = tree.AddNode($"{icon} {Esc(t.Name)} [grey]{Esc(dur)}[/]");
 
                 if (!string.IsNullOrWhiteSpace(t.StdOut))
                 {
