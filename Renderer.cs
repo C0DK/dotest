@@ -119,15 +119,29 @@ public static class Renderer
 
     private static void RenderStdOutPanel(string testName, string stdOut)
     {
-        var content = string.Join("\n",
-            SplitLines(StripAnsi(stdOut)).Select(Esc));
+        // Spectre strips raw ESC bytes from anything it renders, so we bypass
+        // it entirely and draw the panel frame with Console.Write. ANSI codes
+        // in the content are preserved; AnsiRx is used only for visible-length
+        // calculation so the right border column stays aligned.
+        var width = Console.IsOutputRedirected ? 120 : Math.Max(Console.WindowWidth, 20);
+        var inner = width - 2;  // space between the two │ borders
+        var label = $" {testName} ";
+        var topRight = Math.Max(0, inner - 1 - label.Length);
 
-        var panel = new Panel(new Markup(content))
-            .Header($" [grey]{Esc(testName)}[/] ")
-            .BorderColor(Color.Grey)
-            .Expand();
+        const string Grey  = "\x1b[90m";
+        const string Reset = "\x1b[0m";
 
-        AnsiConsole.Write(panel);
+        Console.WriteLine($"{Grey}╭─{label}{new string('─', topRight)}╮{Reset}");
+
+        foreach (var line in SplitLines(stdOut))
+        {
+            var visibleLen = AnsiRx.Replace(line, "").Length;
+            var pad        = Math.Max(0, inner - 1 - visibleLen);
+            Console.Write($"{Grey}│{Reset} {line}{new string(' ', pad)}{Grey}│{Reset}");
+            Console.WriteLine();
+        }
+
+        Console.WriteLine($"{Grey}╰{new string('─', inner)}╯{Reset}");
     }
 
     // ── Summary line ─────────────────────────────────────────────────────────

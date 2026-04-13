@@ -53,16 +53,18 @@ static int Run(string[] args)
             if (assemblies.Count == 0) return;
 
             // ── Step 3: run via TranslationLayer ─────────────────────────────
-            int total = 0, fails = 0;
+            int total = 0, fails = 0, skips = 0;
             void OnResult(TestResult tr)
             {
                 lock (results) results.Add(tr);
-                var n   = Interlocked.Increment(ref total);
-                var f   = tr.Outcome == "Failed" ? Interlocked.Increment(ref fails) : fails;
-                var dur = Renderer.FormatElapsed(sw.Elapsed);
-                ctx.Status(f > 0
-                    ? $"{n} tests  [grey]{dur}[/]  [red]{f} failed[/]"
-                    : $"{n} tests  [grey]{dur}[/]");
+                var n = Interlocked.Increment(ref total);
+                var f = tr.Outcome == "Failed"  ? Interlocked.Increment(ref fails) : fails;
+                var s = tr.Outcome == "Skipped" ? Interlocked.Increment(ref skips) : skips;
+                var dur    = Renderer.FormatElapsed(sw.Elapsed);
+                var status = $"{n} tests  [grey]{dur}[/]";
+                if (f > 0) status += $"  [red]{f} failed[/]";
+                if (s > 0) status += $"  [yellow]{s} skipped[/]";
+                ctx.Status(status);
             }
 
             RunTests(assemblies, filter, OnResult);
