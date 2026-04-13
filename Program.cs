@@ -1,14 +1,7 @@
 using System.Diagnostics;
-using System.Text.RegularExpressions;
 using Dotest;
 using Microsoft.TestPlatform.VsTestConsole.TranslationLayer;
-using Microsoft.TestPlatform.VsTestConsole.TranslationLayer.Interfaces;
-using Microsoft.VisualStudio.TestPlatform.ObjectModel;
-using Microsoft.VisualStudio.TestPlatform.ObjectModel.Client;
-using Microsoft.VisualStudio.TestPlatform.ObjectModel.Logging;
 using Spectre.Console;
-
-using VsTestResult = Microsoft.VisualStudio.TestPlatform.ObjectModel.TestResult;
 
 return Run(args);
 
@@ -39,7 +32,7 @@ static int Run(string[] args)
     }
 
     var buildErrors  = new List<string>();
-    var results      = new List<Dotest.TestResult>();
+    var results      = new List<TestResult>();
     var sw           = Stopwatch.StartNew();
     bool buildFailed = false;
 
@@ -48,7 +41,7 @@ static int Run(string[] args)
         .Start("Building...", ctx =>
         {
             // ── Step 1: build ────────────────────────────────────────────────
-            if (!Build(buildErrors))
+            if (!Builder.Build(buildErrors))
             {
                 buildFailed = true;
                 return;
@@ -56,12 +49,12 @@ static int Run(string[] args)
 
             // ── Step 2: discover test assemblies ─────────────────────────────
             ctx.Status("Discovering tests...");
-            var assemblies = FindTestAssemblies();
+            var assemblies = TestDiscovery.FindTestAssemblies();
             if (assemblies.Count == 0) return;
 
             // ── Step 3: run via TranslationLayer ─────────────────────────────
             int total = 0, fails = 0;
-            void OnResult(Dotest.TestResult tr)
+            void OnResult(TestResult tr)
             {
                 lock (results) results.Add(tr);
                 var n   = Interlocked.Increment(ref total);
@@ -72,30 +65,7 @@ static int Run(string[] args)
                     : $"{n} tests  [grey]{dur}[/]");
             }
 
-            try
-            {
-                var vstestPath = FindVsTestConsolePath();
-                var wrapper = new VsTestConsoleWrapper(vstestPath, new ConsoleParameters
-                {
-                    LogFilePath = null,
-                    TraceLevel  = System.Diagnostics.TraceLevel.Off,
-                });
-                wrapper.StartSession();
-                wrapper.InitializeExtensions([]);
-
-                var runSettings = filter is null
-                    ? "<RunSettings/>"
-                    : $"<RunSettings><RunConfiguration>" +
-                      $"<TestCaseFilter>FullyQualifiedName~{filter}</TestCaseFilter>" +
-                      $"</RunConfiguration></RunSettings>";
-
-                wrapper.RunTests(assemblies, runSettings, new TestRunHandler(OnResult));
-                wrapper.EndSession();
-            }
-            catch (Exception ex)
-            {
-                AnsiConsole.MarkupLine($"[red]Error running tests: {Markup.Escape(ex.Message)}[/]");
-            }
+            RunTests(assemblies, filter, OnResult);
         });
 
     sw.Stop();
@@ -139,100 +109,42 @@ static int Run(string[] args)
     return failed.Count > 0 ? 1 : 0;
 }
 
-// ── Build ─────────────────────────────────────────────────────────────────────
+// ── Test run ──────────────────────────────────────────────────────────────────
 
-static bool Build(List<string> buildErrors)
+static void RunTests(List<string> assemblies, string? filter, Action<TestResult> onResult)
 {
-    var psi = new ProcessStartInfo("dotnet", "build --nologo")
+    var logFile = Path.Combine(Path.GetTempPath(), $"dotest-{Guid.NewGuid():N}.log");
+    try
     {
-        RedirectStandardOutput = true,
-        RedirectStandardError  = true,
-        UseShellExecute        = false,
-    };
-
-    using var proc       = Process.Start(psi)!;
-    var       stderrTask = Task.Run(() => proc.StandardError.ReadToEnd());
-
-    string? line;
-    while ((line = proc.StandardOutput.ReadLine()) is not null)
-    {
-        if (line.Contains(": error "))
-            buildErrors.Add(line);
-    }
-
-    proc.WaitForExit();
-    stderrTask.Wait();
-
-    return proc.ExitCode == 0;
-}
-
-// ── Test assembly discovery ───────────────────────────────────────────────────
-
-static List<string> FindTestAssemblies()
-{
-    var assemblies = new List<string>();
-
-    string[] projFiles;
-    try { projFiles = Directory.GetFiles(".", "*.csproj", SearchOption.AllDirectories); }
-    catch { return assemblies; }
-
-    foreach (var proj in projFiles)
-    {
-        try
+        var vstestPath = TestDiscovery.FindVsTestConsolePath();
+        var wrapper    = new VsTestConsoleWrapper(vstestPath, new ConsoleParameters
         {
-            var content = File.ReadAllText(proj);
-            if (!content.Contains("Microsoft.NET.Test.Sdk", StringComparison.OrdinalIgnoreCase))
-                continue;
+            LogFilePath = logFile,
+            TraceLevel  = System.Diagnostics.TraceLevel.Off,
+        });
+        wrapper.StartSession();
+        wrapper.InitializeExtensions([]);
 
-            var psi = new ProcessStartInfo("dotnet")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError  = true,
-                UseShellExecute        = false,
-            };
-            psi.ArgumentList.Add("msbuild");
-            psi.ArgumentList.Add(proj);
-            psi.ArgumentList.Add("-getProperty:TargetPath");
-            psi.ArgumentList.Add("-nologo");
-            psi.ArgumentList.Add("-verbosity:quiet");
+        var runSettings = filter is null
+            ? "<RunSettings/>"
+            : $"<RunSettings><RunConfiguration>" +
+              $"<TestCaseFilter>FullyQualifiedName~{filter}</TestCaseFilter>" +
+              $"</RunConfiguration></RunSettings>";
 
-            using var proc = Process.Start(psi)!;
-            var path = proc.StandardOutput.ReadToEnd().Trim();
-            proc.StandardError.ReadToEnd();
-            proc.WaitForExit();
-
-            if (File.Exists(path))
-                assemblies.Add(path);
-        }
-        catch { /* skip invalid projects */ }
+        wrapper.RunTests(assemblies, runSettings, new TestRunHandler(onResult));
+        wrapper.EndSession();
     }
-
-    return assemblies;
-}
-
-// ── vstest.console.dll path ───────────────────────────────────────────────────
-
-static string FindVsTestConsolePath()
-{
-    var psi = new ProcessStartInfo("dotnet", "--info")
+    catch (Exception ex)
     {
-        RedirectStandardOutput = true,
-        UseShellExecute        = false,
-    };
-    using var proc   = Process.Start(psi)!;
-    var       output = proc.StandardOutput.ReadToEnd();
-    proc.WaitForExit();
-
-    var match = Regex.Match(output, @"Base Path:\s+(.+)");
-    if (!match.Success)
-        throw new InvalidOperationException(
-            "Cannot determine dotnet SDK base path from 'dotnet --info'.");
-
-    var sdkPath = match.Groups[1].Value.Trim().TrimEnd('/', '\\');
-    return Path.Combine(sdkPath, "vstest.console.dll");
+        AnsiConsole.MarkupLine($"[red]Error running tests: {Markup.Escape(ex.Message)}[/]");
+    }
+    finally
+    {
+        try { File.Delete(logFile); } catch { /* best-effort cleanup */ }
+    }
 }
 
-// ── Help ─────────────────────────────────────────────────────────────────────
+// ── Help ──────────────────────────────────────────────────────────────────────
 
 static void PrintHelp()
 {
@@ -255,68 +167,4 @@ static void PrintHelp()
     Console.WriteLine();
     Console.WriteLine("INSTALL:");
     Console.WriteLine("  dotnet tool install -g dotest");
-}
-
-// ── VSTest event handler ──────────────────────────────────────────────────────
-
-internal sealed class TestRunHandler : ITestRunEventsHandler
-{
-    private readonly Action<Dotest.TestResult> _onResult;
-
-    public TestRunHandler(Action<Dotest.TestResult> onResult) => _onResult = onResult;
-
-    public void HandleTestRunStatsChange(TestRunChangedEventArgs? args)
-    {
-        if (args?.NewTestResults is null) return;
-        foreach (var r in args.NewTestResults)
-            _onResult(Convert(r));
-    }
-
-    public void HandleTestRunComplete(
-        TestRunCompleteEventArgs     completeArgs,
-        TestRunChangedEventArgs?     lastChunk,
-        ICollection<AttachmentSet>?  attachments,
-        ICollection<string>?         executorUris)
-    {
-        if (lastChunk?.NewTestResults is null) return;
-        foreach (var r in lastChunk.NewTestResults)
-            _onResult(Convert(r));
-    }
-
-    public void HandleLogMessage(TestMessageLevel level, string? message) { }
-    public void HandleRawMessage(string rawMessage) { }
-    public int  LaunchProcessWithDebuggerAttached(TestProcessStartInfo info) => -1;
-
-    private static Dotest.TestResult Convert(VsTestResult r)
-    {
-        var fqn          = r.TestCase.FullyQualifiedName;
-        var nameForSplit = fqn.Contains('(') ? fqn[..fqn.IndexOf('(')] : fqn;
-        var lastDot      = nameForSplit.LastIndexOf('.');
-        var className    = lastDot > 0 ? nameForSplit[..lastDot] : "";
-        var name         = r.TestCase.DisplayName ?? (lastDot > 0 ? fqn[(lastDot + 1)..] : fqn);
-
-        var outcome = r.Outcome switch
-        {
-            TestOutcome.Passed  => "Passed",
-            TestOutcome.Failed  => "Failed",
-            TestOutcome.Skipped => "Skipped",
-            _                   => "Skipped",
-        };
-
-        var stdOut = string.Join("\n",
-            r.Messages
-             .Where(m => m.Category == TestResultMessage.StandardOutCategory)
-             .Select(m => m.Text?.TrimEnd() ?? ""));
-
-        return new Dotest.TestResult(
-            ClassName:    className,
-            Name:         name,
-            FullName:     fqn,
-            Outcome:      outcome,
-            Duration:     r.Duration,
-            ErrorMessage: r.ErrorMessage ?? "",
-            StackTrace:   r.ErrorStackTrace ?? "",
-            StdOut:       stdOut
-        );
-    }
 }
