@@ -74,8 +74,16 @@ public static class Renderer
 
         foreach (var g in groups)
         {
-            var tree = new Tree($"  [cyan]{Esc(g.Key)}[/]");
-            foreach (var t in g)
+            var tree    = new Tree($"  [cyan]{Esc(g.Key)}[/]");
+            var classPrefix = g.Key.Length > 0 ? g.Key + "." : "";
+            var testList    = g.ToList();
+
+            // Strip class prefix, then right-align theory argument values.
+            var rawNames     = testList.Select(t => t.Name.StartsWith(classPrefix, StringComparison.Ordinal)
+                                   ? t.Name[classPrefix.Length..] : t.Name).ToList();
+            var displayNames = AlignArguments(rawNames);
+
+            foreach (var (t, displayName) in testList.Zip(displayNames))
             {
                 var color = t.Outcome switch
                 {
@@ -89,12 +97,8 @@ public static class Renderer
                     "Failed" => "\u2717",   // ✗
                     _        => "\u25cb",   // ○
                 };
-                var dur         = FormatElapsed(t.Duration).PadRight(6);
-                var prefix      = t.ClassName.Length > 0 ? t.ClassName + "." : "";
-                var displayName = t.Name.StartsWith(prefix, StringComparison.Ordinal)
-                    ? t.Name[prefix.Length..]
-                    : t.Name;
-                var node = tree.AddNode($"[{color}]{Esc(glyph)} {Esc(dur)}[/] {Esc(displayName)}");
+                var dur  = FormatElapsed(t.Duration).PadLeft(6);
+                var node = tree.AddNode($"[{color}]{Esc(glyph)}[/] [grey]{Esc(dur)}[/] {Esc(displayName)}");
 
                 if (!string.IsNullOrWhiteSpace(t.StdOut))
                 {
@@ -181,4 +185,58 @@ public static class Renderer
 
     private static IEnumerable<string> SplitLines(string s) =>
         s.Trim().Split('\n').Select(l => l.TrimEnd('\r'));
+
+    /// <summary>
+    /// For groups of names that share a base method name (the part before the
+    /// first <c>(</c>), right-aligns each positional argument value so the
+    /// columns line up across theory variants.
+    /// </summary>
+    private static List<string> AlignArguments(List<string> names)
+    {
+        // Group list indices by base name (e.g. "MyMethod" from "MyMethod(x: 1)").
+        var buckets = new Dictionary<string, List<int>>();
+        for (int i = 0; i < names.Count; i++)
+        {
+            var p   = names[i].IndexOf('(');
+            var key = p >= 0 ? names[i][..p] : names[i];
+            if (!buckets.ContainsKey(key)) buckets[key] = [];
+            buckets[key].Add(i);
+        }
+
+        var result = names.ToList();
+        foreach (var (baseName, indices) in buckets)
+        {
+            if (indices.Count < 2) continue;  // nothing to align
+
+            // Parse "label: value" pairs for every variant in this bucket.
+            var parsed = indices
+                .Select(i => ParseArgList(names[i][(baseName.Length + 1)..^1]))
+                .ToList();
+
+            // Find the widest value at each argument position.
+            int maxArgs   = parsed.Max(a => a.Count);
+            var maxWidths = new int[maxArgs];
+            foreach (var args in parsed)
+                for (int j = 0; j < args.Count; j++)
+                    maxWidths[j] = Math.Max(maxWidths[j], args[j].value.Length);
+
+            // Rebuild each name with values padded to the column width.
+            for (int k = 0; k < indices.Count; k++)
+            {
+                var args    = parsed[k];
+                var aligned = args.Select((a, j) => $"{a.label}: {a.value.PadLeft(maxWidths[j])}");
+                result[indices[k]] = baseName + "(" + string.Join(", ", aligned) + ")";
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Splits an xUnit-style argument string such as
+    /// <c>ms: 1000, expected: "1s"</c> into (label, value) pairs.
+    /// </summary>
+    private static List<(string label, string value)> ParseArgList(string argsStr) =>
+        argsStr.Split(", ")
+               .Select(a => { var i = a.IndexOf(": "); return i >= 0 ? (a[..i], a[(i + 2)..]) : ("", a); })
+               .ToList();
 }
