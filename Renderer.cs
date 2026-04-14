@@ -74,93 +74,179 @@ public static class Renderer
     /// </summary>
     public static void RenderTree(IReadOnlyList<TestResult> tests)
     {
-        var groups = tests.GroupBy(t =>
-            string.IsNullOrEmpty(t.ClassName) ? "(unknown)" : t.ClassName);
+        var byClass = tests
+            .GroupBy(t => string.IsNullOrEmpty(t.ClassName) ? "" : t.ClassName)
+            .ToDictionary(g => g.Key, g => g.ToList());
 
-        foreach (var g in groups)
+        var termWidth = Console.IsOutputRedirected ? 120 : Console.WindowWidth;
+        var panels    = new List<(string displayName, string stdout)>();
+
+        var namedClasses = byClass.Keys.Where(k => k.Length > 0).ToList();
+        var commonParts  = FindCommonPrefixParts(namedClasses);
+        var commonPrefix = string.Join(".", commonParts);
+
+        if (commonPrefix.Length == 0)
         {
-            var anyFailed  = g.Any(t => t.Outcome == "Failed");
-            var anySkipped = !anyFailed && g.Any(t => t.Outcome == "Skipped");
-            var branchColor = anyFailed ? "red" : anySkipped ? "yellow" : "green";
-            var branchGlyph = anyFailed ? "\u2717" : anySkipped ? "\u25cb" : "\u2713";
-            var tree = new Tree($"  [{branchColor}]{branchGlyph}[/] [cyan]{Esc(g.Key)}[/]");
-            var classPrefix = g.Key.Length > 0 ? g.Key + "." : "";
-            var testList    = g.ToList();
-
-            // Strip class prefix, then right-align theory argument values.
-            var rawNames     = testList.Select(t => t.Name.StartsWith(classPrefix, StringComparison.Ordinal)
-                                   ? t.Name[classPrefix.Length..] : t.Name).ToList();
-            var displayNames = AlignArguments(rawNames);
-
-            // 4 = tree connector "├── ", 1 = glyph, 1 = space, 6 = duration, 1 = space,
-            // methodPart (varies), 2 = "(" and ")", 2 = right margin
-            var termWidth = Console.IsOutputRedirected ? 120 : Console.WindowWidth;
-
-            for (int ii = 0; ii < testList.Count; ii++)
+            // No shared namespace: one flat tree per class (fallback)
+            foreach (var (className, classTests) in byClass
+                .Where(kv => kv.Key.Length > 0).OrderBy(kv => kv.Key))
             {
-                var t           = testList[ii];
-                var displayName = displayNames[ii];
-                var rawName     = rawNames[ii];
+                var anyF = classTests.Any(t => t.Outcome == "Failed");
+                var anyS = !anyF && classTests.Any(t => t.Outcome is not "Passed" and not "Failed");
+                var col  = anyF ? "red" : anyS ? "yellow" : "green";
+                var t    = new Tree($"[{col}]{Esc(className)}[/]");
+                RenderLeafTests(l => t.AddNode(l), classTests, termWidth, panels, depth: 1);
+                AnsiConsole.Write(t);
+            }
+        }
+        else
+        {
+            // Build a logical hierarchy rooted at the common namespace prefix.
+            var root = new HierNode(commonPrefix);
+            foreach (var (className, classTests) in byClass.Where(kv => kv.Key.Length > 0))
+            {
+                // Strip the common prefix (+ the separating dot) to get the relative path.
+                var relative = className.Length > commonPrefix.Length
+                    ? className[(commonPrefix.Length + 1)..] : "";
+                // Split on '.' (sub-namespace) and '+' (nested class).
+                var segments = relative.Length == 0
+                    ? [] : relative.Split(['.', '+']);
 
-                var color = t.Outcome switch
+                var node = root;
+                foreach (var seg in segments)
                 {
-                    "Passed" => "green",
-                    "Failed" => "red",
-                    _        => "yellow",
-                };
-                var glyph = t.Outcome switch
-                {
-                    "Passed" => "\u2713",   // ✓
-                    "Failed" => "\u2717",   // ✗
-                    _        => "\u25cb",   // ○
-                };
-                var dur = FormatElapsed(t.Duration).PadLeft(6);
+                    if (!node.Children.TryGetValue(seg, out var child))
+                        node.Children[seg] = child = new HierNode(seg);
+                    node = child;
+                }
+                node.Tests.AddRange(classTests);
+            }
 
-                // displayName from AlignArguments is already single-line (Truncate flattened
-                // any multi-line values). Do NOT apply WhitespaceRx here — that would collapse
-                // the intentional padding spaces added by PadLeft for column alignment.
-                var dParen     = displayName.IndexOf('(');
-                var methodPart = dParen >= 0 ? displayName[..dParen].TrimEnd() : displayName.Trim();
+            var spectreTree = new Tree($"[cyan]{Esc(commonPrefix)}[/]");
+            foreach (var child in root.Children.Values.OrderBy(n => n.Name))
+                RenderHierNode(l => spectreTree.AddNode(l), child, termWidth, panels, depth: 1);
+            RenderLeafTests(l => spectreTree.AddNode(l), root.Tests, termWidth, panels, depth: 1);
+            AnsiConsole.Write(spectreTree);
+        }
 
-                // argsAligned: from the aligned display name, leading/trailing spaces trimmed.
-                // For labeled args (x:   1) internal spaces are preserved → alignment intact.
-                // For unlabeled args padded with leading spaces, Trim() removes them cleanly.
-                var argsAligned = dParen >= 0 ? displayName[(dParen + 1)..^1].Trim() : "";
+        // Tests with no class name appear in a separate section.
+        if (byClass.TryGetValue("", out var unknownTests))
+        {
+            var unknownTree = new Tree("[grey](unknown class)[/]");
+            RenderLeafTests(l => unknownTree.AddNode(l), unknownTests, termWidth, panels, depth: 1);
+            AnsiConsole.Write(unknownTree);
+        }
 
-                // argsRaw: from the pre-alignment name, whitespace-collapsed for multi-line safety.
-                // Used as truncation source so leading padding spaces never eat into the budget.
-                var rParen  = rawName.IndexOf('(');
-                var argsRaw = rParen >= 0
+        // Stdout panels after all trees so raw ANSI is not disrupted by tree connectors.
+        foreach (var (name, stdout) in panels)
+            RenderStdOutPanel(name, stdout);
+    }
+
+    // ── Hierarchical tree helpers ─────────────────────────────────────────────
+
+    private sealed class HierNode(string name)
+    {
+        internal readonly string Name = name;
+        internal readonly SortedDictionary<string, HierNode> Children = new();
+        internal readonly List<TestResult> Tests = [];
+        internal bool AnyFailed  => Tests.Any(t => t.Outcome == "Failed")
+                                 || Children.Values.Any(c => c.AnyFailed);
+        internal bool AnySkipped => !AnyFailed
+                                 && (Tests.Any(t => t.Outcome is not "Passed" and not "Failed")
+                                   || Children.Values.Any(c => c.AnySkipped));
+    }
+
+    /// <summary>
+    /// Renders an intermediate (non-leaf) hierarchy node — coloured name, no glyph.
+    /// The status colour (green/yellow/red) summarises all descendants.
+    /// </summary>
+    private static void RenderHierNode(
+        Func<string, TreeNode> addNode, HierNode node,
+        int termWidth, List<(string, string)> panels, int depth)
+    {
+        var color      = node.AnyFailed ? "red" : node.AnySkipped ? "yellow" : "green";
+        var spectreNode = addNode($"[{color}]{Esc(node.Name)}[/]");
+
+        foreach (var child in node.Children.Values)
+            RenderHierNode(l => spectreNode.AddNode(l), child, termWidth, panels, depth + 1);
+
+        RenderLeafTests(l => spectreNode.AddNode(l), node.Tests, termWidth, panels, depth + 1);
+    }
+
+    /// <summary>
+    /// Renders the individual test results (leaf nodes) for one class into the given parent.
+    /// </summary>
+    private static void RenderLeafTests(
+        Func<string, TreeNode> addNode, List<TestResult> tests,
+        int termWidth, List<(string, string)> panels, int depth)
+    {
+        if (tests.Count == 0) return;
+
+        var classPrefix  = tests[0].ClassName.Length > 0 ? tests[0].ClassName + "." : "";
+        var rawNames     = tests.Select(t => classPrefix.Length > 0
+            && t.Name.StartsWith(classPrefix, StringComparison.Ordinal)
+            ? t.Name[classPrefix.Length..] : t.Name).ToList();
+        var displayNames = AlignArguments(rawNames);
+
+        // Each depth level adds 4 chars of tree connector ("│   " or "└── ").
+        // Fixed overhead: 1 (glyph) + 1 (space) + 6 (duration) + 1 (space) + 2 (parens) + 2 (margin).
+        var fixedOverhead = 4 * depth + 13;
+
+        for (int ii = 0; ii < tests.Count; ii++)
+        {
+            var t           = tests[ii];
+            var displayName = displayNames[ii];
+            var rawName     = rawNames[ii];
+
+            var color = t.Outcome switch { "Passed" => "green", "Failed" => "red", _ => "yellow" };
+            var glyph = t.Outcome switch
+            {
+                "Passed" => "\u2713",   // ✓
+                "Failed" => "\u2717",   // ✗
+                _        => "\u25cb",   // ○
+            };
+            var dur = FormatElapsed(t.Duration).PadLeft(6);
+
+            var dParen      = displayName.IndexOf('(');
+            var methodPart  = dParen >= 0 ? displayName[..dParen].TrimEnd() : displayName.Trim();
+            var argsAligned = dParen >= 0 ? displayName[(dParen + 1)..^1].Trim() : "";
+            var rParen      = rawName.IndexOf('(');
+            var argsRaw     = rParen >= 0
                             ? WhitespaceRx.Replace(rawName[(rParen + 1)..^1].Trim(), " ").Trim()
                             : "";
 
-                var argBudget = Math.Max(10, termWidth - 17 - methodPart.Length);
+            var argBudget = Math.Max(10, termWidth - fixedOverhead - methodPart.Length);
+            var argsInner = argsAligned.Length <= argBudget ? argsAligned
+                          : argsRaw.Length    <= argBudget ? argsRaw
+                          : argsRaw[..(argBudget - 1)] + "…";
 
-                // Prefer aligned (preserves column alignment for short numeric args).
-                // Fall back to unpadded raw when args exceed the budget so the truncation
-                // point is driven by actual content, not padding spaces.
-                string argsInner;
-                if (argsAligned.Length <= argBudget)
-                    argsInner = argsAligned;
-                else if (argsRaw.Length <= argBudget)
-                    argsInner = argsRaw;
-                else
-                    argsInner = argsRaw[..(argBudget - 1)] + "…";
+            var nodeText = $"[{color}]{Esc(glyph)}[/] [grey]{Esc(dur)}[/] {Esc(methodPart)}"
+                         + (argsInner.Length > 0 ? $"([silver]{Esc(argsInner)}[/])" : "");
+            addNode(nodeText);
 
-                var nodeText = $"[{color}]{Esc(glyph)}[/] [grey]{Esc(dur)}[/] {Esc(methodPart)}"
-                             + (argsInner.Length > 0 ? $"([silver]{Esc(argsInner)}[/])" : "");
-                tree.AddNode(nodeText);
-            }
-            AnsiConsole.Write(tree);
-
-            // Stdout panels are printed after the tree so raw ANSI codes can be
-            // stripped cleanly without disrupting the tree connectors.
-            foreach (var (t, displayName) in testList.Zip(displayNames))
-            {
-                if (!string.IsNullOrWhiteSpace(t.StdOut))
-                    RenderStdOutPanel(displayName, t.StdOut);
-            }
+            if (!string.IsNullOrWhiteSpace(t.StdOut))
+                panels.Add((displayName, t.StdOut));
         }
+    }
+
+    /// <summary>
+    /// Returns the longest common dot-separated prefix across all class names.
+    /// For a single class, strips the last segment so the class name itself
+    /// appears as a child node rather than the tree root.
+    /// </summary>
+    private static string[] FindCommonPrefixParts(IReadOnlyList<string> classNames)
+    {
+        if (classNames.Count == 0) return [];
+        var parts  = classNames.Select(n => n.Split('.')).ToArray();
+        int maxLen = parts.Min(p => p.Length);
+        int i      = 0;
+        while (i < maxLen && parts.All(p => p[i] == parts[0][i]))
+            i++;
+        // For a single name the loop consumes all parts — peel the last one off
+        // so the class sits as a child of its namespace, not as the root itself.
+        if (classNames.Count == 1)
+            i = Math.Max(0, i - 1);
+        return parts[0][..i];
     }
 
     private static void RenderStdOutPanel(string testName, string stdOut)
