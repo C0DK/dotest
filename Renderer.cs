@@ -102,8 +102,9 @@ public static class Renderer
                     "Failed" => "\u2717",   // ✗
                     _        => "\u25cb",   // ○
                 };
-                var dur  = FormatElapsed(t.Duration).PadLeft(6);
-                tree.AddNode($"[{color}]{Esc(glyph)}[/] [grey]{Esc(dur)}[/] {Esc(displayName)}");
+                var dur          = FormatElapsed(t.Duration).PadLeft(6);
+                var safeDisplay  = WhitespaceRx.Replace(displayName.Trim(), " ");
+                tree.AddNode($"[{color}]{Esc(glyph)}[/] [grey]{Esc(dur)}[/] {Esc(safeDisplay)}");
             }
             AnsiConsole.Write(tree);
 
@@ -186,13 +187,13 @@ public static class Renderer
     {
         var trimmed = line.TrimStart();
         if (!trimmed.StartsWith("at ", StringComparison.Ordinal))
-            return $"   [lime]{Esc(trimmed)}[/]";
+            return $"   [silver]{Esc(trimmed)}[/]";
 
         var m = StackFrameRx.Match(trimmed);
         if (!m.Success)
-            return $"   [lime]{Esc(trimmed)}[/]";
+            return $"   [silver]{Esc(trimmed)}[/]";
 
-        return $"   [lime]at {Esc(m.Groups[1].Value)}[/]" +
+        return $"   [silver]at {Esc(m.Groups[1].Value)}[/]" +
                $" in [cyan]{Esc(m.Groups[2].Value)}[/]" +
                $"[yellow]:line {m.Groups[3].Value}[/]";
     }
@@ -216,10 +217,17 @@ public static class Renderer
     // ── Misc helpers ──────────────────────────────────────────────────────────
 
     private const  int    MaxArgValueLen = 40;
-    private static string Esc(string s)               => Markup.Escape(s);
-    internal static string StripAnsi(string s)         => AnsiRx.Replace(s, "");
-    internal static string Truncate(string s)          =>
-        s.Length <= MaxArgValueLen ? s : s[..(MaxArgValueLen - 1)] + "…";
+    private static readonly Regex WhitespaceRx = new(@"\s+", RegexOptions.Compiled);
+    private static string Esc(string s)          => Markup.Escape(s);
+    internal static string StripAnsi(string s)   => AnsiRx.Replace(s, "");
+
+    // Collapse runs of whitespace (including newlines from multi-line values)
+    // to a single space, then truncate with '…' if still over the limit.
+    internal static string Truncate(string s)
+    {
+        var flat = WhitespaceRx.Replace(s.Trim(), " ");
+        return flat.Length <= MaxArgValueLen ? flat : flat[..(MaxArgValueLen - 1)] + "…";
+    }
     internal static List<string> AlignArguments(List<string> names)
     {
         // Group list indices by base name (e.g. "MyMethod" from "MyMethod(x: 1)").
@@ -252,10 +260,13 @@ public static class Renderer
                     maxWidths[j] = Math.Max(maxWidths[j], args[j].value.Length);
 
             // Rebuild each name with values padded to the column width.
+            // Skip the "label: " prefix when the label is empty (unlabelled params).
             for (int k = 0; k < indices.Count; k++)
             {
                 var args    = parsed[k];
-                var aligned = args.Select((a, j) => $"{a.label}: {a.value.PadLeft(maxWidths[j])}");
+                var aligned = args.Select((a, j) => string.IsNullOrEmpty(a.label)
+                    ? a.value.PadLeft(maxWidths[j])
+                    : $"{a.label}: {a.value.PadLeft(maxWidths[j])}");
                 result[indices[k]] = baseName + "(" + string.Join(", ", aligned) + ")";
             }
         }
@@ -282,7 +293,13 @@ public static class Renderer
             var s = current.ToString().Trim();
             if (s.Length == 0) return;
             var colon = s.IndexOf(": ");
-            result.Add(colon >= 0 ? (s[..colon], s[(colon + 2)..]) : ("", s));
+            // Only treat as "label: value" when the label is a plain identifier
+            // (letters, digits, underscores). Values like records or HTML strings
+            // often contain ": " inside them and must not be split here.
+            if (colon > 0 && s[..colon].All(c => char.IsLetterOrDigit(c) || c == '_'))
+                result.Add((s[..colon], s[(colon + 2)..]));
+            else
+                result.Add(("", s));
             current.Clear();
         }
 

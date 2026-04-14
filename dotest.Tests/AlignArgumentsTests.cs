@@ -131,6 +131,44 @@ public class AlignArgumentsTests
         Assert.EndsWith("…", result);
     }
 
+    [Fact]
+    public void Truncate_MultilineValue_CollapsedToSingleLine()
+    {
+        // HtmlDescription values may contain \n — they must become a single line.
+        var result = Renderer.Truncate("line one\nline two\nline three");
+        Assert.DoesNotContain("\n", result);
+        Assert.Equal("line one line two line three", result);
+    }
+
+    [Fact]
+    public void Truncate_ExcessiveInternalWhitespace_Collapsed()
+    {
+        // e.g. "Reason:                   reason" → "Reason: reason"
+        Assert.Equal("Reason: reason", Renderer.Truncate("Reason:                   reason"));
+    }
+
+    // ── ParseArgList: label detection ─────────────────────────────────────────
+
+    [Fact]
+    public void ParseArgList_LabelWithColonInsideRecord_NotSplitAsLabel()
+    {
+        // "HtmlDescription = Reason: reason" inside a record — the "Reason:" part
+        // must NOT be treated as a label because what precedes ": " is not an identifier.
+        var args = Renderer.ParseArgList(
+            "ManuallyMarkedAsCancelled { Reason = reason, HtmlDescription = Note: hi }");
+        Assert.Single(args);
+        Assert.Equal("", args[0].label);  // no identifier label found
+    }
+
+    [Fact]
+    public void ParseArgList_ValidIdentifierLabel_RecognisedCorrectly()
+    {
+        var args = Renderer.ParseArgList("input: 42");
+        Assert.Single(args);
+        Assert.Equal("input", args[0].label);
+        Assert.Equal("42",    args[0].value);
+    }
+
     // ── ParseArgList: nested structures ──────────────────────────────────────
 
     [Fact]
