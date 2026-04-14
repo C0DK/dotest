@@ -107,8 +107,11 @@ public static class Renderer
                 var paren       = safe.IndexOf('(');
                 var methodPart  = paren >= 0 ? safe[..paren].TrimEnd() : safe;
                 var argsRaw     = paren >= 0 ? safe[(paren + 1)..^1].Trim() : "";
-                var argsInner   = argsRaw.Length > MaxTreeArgLen
-                                    ? argsRaw[..(MaxTreeArgLen - 1)] + "…" : argsRaw;
+                // 4 = tree connector "├── ", 1 = glyph, 1 = space, 6 = duration, 1 = space,
+                // methodPart.Length, 2 = surrounding "(" and ")"
+                var argBudget   = Math.Max(10, AnsiConsole.Profile.Width - 15 - methodPart.Length);
+                var argsInner   = argsRaw.Length > argBudget
+                                    ? argsRaw[..(argBudget - 1)] + "…" : argsRaw;
                 var nodeText    = $"[{color}]{Esc(glyph)}[/] [grey]{Esc(dur)}[/] {Esc(methodPart)}"
                                 + (argsInner.Length > 0 ? $"([silver]{Esc(argsInner)}[/])" : "");
                 tree.AddNode(nodeText);
@@ -224,7 +227,6 @@ public static class Renderer
     // ── Misc helpers ──────────────────────────────────────────────────────────
 
     private const  int    MaxArgValueLen  = 40;
-    private const  int    MaxTreeArgLen   = 60;
     private static readonly Regex WhitespaceRx = new(@"\s+", RegexOptions.Compiled);
     private static string Esc(string s)          => Markup.Escape(s);
     internal static string StripAnsi(string s)   => AnsiRx.Replace(s, "");
