@@ -88,8 +88,16 @@ public static class Renderer
                                    ? t.Name[classPrefix.Length..] : t.Name).ToList();
             var displayNames = AlignArguments(rawNames);
 
-            foreach (var (t, displayName) in testList.Zip(displayNames))
+            // 4 = tree connector "├── ", 1 = glyph, 1 = space, 6 = duration, 1 = space,
+            // methodPart (varies), 2 = "(" and ")", 2 = right margin
+            var termWidth = Console.IsOutputRedirected ? 120 : Console.WindowWidth;
+
+            for (int ii = 0; ii < testList.Count; ii++)
             {
+                var t           = testList[ii];
+                var displayName = displayNames[ii];
+                var rawName     = rawNames[ii];
+
                 var color = t.Outcome switch
                 {
                     "Passed" => "green",
@@ -102,18 +110,41 @@ public static class Renderer
                     "Failed" => "\u2717",   // ✗
                     _        => "\u25cb",   // ○
                 };
-                var dur         = FormatElapsed(t.Duration).PadLeft(6);
-                var safe        = WhitespaceRx.Replace(displayName.Trim(), " ");
-                var paren       = safe.IndexOf('(');
-                var methodPart  = paren >= 0 ? safe[..paren].TrimEnd() : safe;
-                var argsRaw     = paren >= 0 ? safe[(paren + 1)..^1].Trim() : "";
-                // 4 = tree connector "├── ", 1 = glyph, 1 = space, 6 = duration, 1 = space,
-                // methodPart.Length, 2 = surrounding "(" and ")"
-                var argBudget   = Math.Max(10, AnsiConsole.Profile.Width - 17 - methodPart.Length);
-                var argsInner   = argsRaw.Length > argBudget
-                                    ? argsRaw[..(argBudget - 1)] + "…" : argsRaw;
-                var nodeText    = $"[{color}]{Esc(glyph)}[/] [grey]{Esc(dur)}[/] {Esc(methodPart)}"
-                                + (argsInner.Length > 0 ? $"([silver]{Esc(argsInner)}[/])" : "");
+                var dur = FormatElapsed(t.Duration).PadLeft(6);
+
+                // displayName from AlignArguments is already single-line (Truncate flattened
+                // any multi-line values). Do NOT apply WhitespaceRx here — that would collapse
+                // the intentional padding spaces added by PadLeft for column alignment.
+                var dParen     = displayName.IndexOf('(');
+                var methodPart = dParen >= 0 ? displayName[..dParen].TrimEnd() : displayName.Trim();
+
+                // argsAligned: from the aligned display name, leading/trailing spaces trimmed.
+                // For labeled args (x:   1) internal spaces are preserved → alignment intact.
+                // For unlabeled args padded with leading spaces, Trim() removes them cleanly.
+                var argsAligned = dParen >= 0 ? displayName[(dParen + 1)..^1].Trim() : "";
+
+                // argsRaw: from the pre-alignment name, whitespace-collapsed for multi-line safety.
+                // Used as truncation source so leading padding spaces never eat into the budget.
+                var rParen  = rawName.IndexOf('(');
+                var argsRaw = rParen >= 0
+                            ? WhitespaceRx.Replace(rawName[(rParen + 1)..^1].Trim(), " ").Trim()
+                            : "";
+
+                var argBudget = Math.Max(10, termWidth - 17 - methodPart.Length);
+
+                // Prefer aligned (preserves column alignment for short numeric args).
+                // Fall back to unpadded raw when args exceed the budget so the truncation
+                // point is driven by actual content, not padding spaces.
+                string argsInner;
+                if (argsAligned.Length <= argBudget)
+                    argsInner = argsAligned;
+                else if (argsRaw.Length <= argBudget)
+                    argsInner = argsRaw;
+                else
+                    argsInner = argsRaw[..(argBudget - 1)] + "…";
+
+                var nodeText = $"[{color}]{Esc(glyph)}[/] [grey]{Esc(dur)}[/] {Esc(methodPart)}"
+                             + (argsInner.Length > 0 ? $"([silver]{Esc(argsInner)}[/])" : "");
                 tree.AddNode(nodeText);
             }
             AnsiConsole.Write(tree);
