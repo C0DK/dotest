@@ -79,10 +79,10 @@ public class AlignArgumentsTests
     // ── complex values are truncated, then aligned ───────────────────────────
 
     [Fact]
-    public void AlignArguments_LongValue_TruncatedThenAligned()
+    public void AlignArguments_LongMultilineValue_TruncatedThenAligned()
     {
-        // A value longer than 40 chars is truncated with '…' before aligning.
-        var longVal = new string('x', 50);
+        // Multi-line values are flattened and truncated to MaxArgValueLen (40) before aligning.
+        var longVal = "line one\n" + new string('x', 42);
         var names   = new List<string> { "M(v: 1)", $"M(v: {longVal})" };
         var result  = Renderer.AlignArguments(names);
         // Short value padded to match truncated long value width (40 chars)
@@ -92,19 +92,20 @@ public class AlignArgumentsTests
     }
 
     [Fact]
-    public void AlignArguments_RecordValue_TruncatedForDisplay()
+    public void AlignArguments_RecordValue_SingleLineNotTruncated()
     {
-        // Record values with internal ", " must be parsed as a single argument
-        // (not split), then truncated if they exceed the max display length.
+        // Record values with internal ", " must be parsed as a single argument (not split).
+        // Single-line values are never truncated, even if they exceed MaxArgValueLen.
         var names = new List<string>
         {
-            "M(order: Order { Id = 1, Total = 10, Description = \"long desc\" })",
-            "M(order: Order { Id = 2, Total = 9999, Description = \"other\" })",
+            "M(order: Order { Id = 1, Total = 10 })",
+            "M(order: Order { Id = 2, Total = 9999 })",
         };
         var result = Renderer.AlignArguments(names);
-        // Both start with "M(order: " and contain '…' since values are > 40 chars.
+        // Both start with "M(order: " and must NOT be truncated (single-line values are kept as-is).
         Assert.All(result, r => Assert.StartsWith("M(order: ", r));
-        Assert.All(result, r => Assert.Contains("…", r));
+        Assert.DoesNotContain("…", result[0]);
+        Assert.DoesNotContain("…", result[1]);
     }
 
     // ── Truncate ──────────────────────────────────────────────────────────────
@@ -123,12 +124,22 @@ public class AlignArgumentsTests
     }
 
     [Fact]
-    public void Truncate_LongerThanMax_EndsWithEllipsis()
+    public void Truncate_MultilineLongerThanMax_EndsWithEllipsis()
     {
-        var s      = new string('a', 41);
+        // Multi-line values that flatten to more than 40 chars get truncated with '…'.
+        var s      = "aaaaaaaaaa\naaaaaaaaaa\naaaaaaaaaa\naaaaaaaaaa\naaa";  // flattens to 43 chars
         var result = Renderer.Truncate(s);
         Assert.Equal(40, result.Length);
         Assert.EndsWith("…", result);
+    }
+
+    [Fact]
+    public void Truncate_SingleLineLongerThanMax_Unchanged()
+    {
+        // Single-line values are never truncated, regardless of length.
+        var s      = new string('a', 41);
+        var result = Renderer.Truncate(s);
+        Assert.Equal(s, result);
     }
 
     [Fact]
@@ -141,10 +152,18 @@ public class AlignArgumentsTests
     }
 
     [Fact]
-    public void Truncate_ExcessiveInternalWhitespace_Collapsed()
+    public void Truncate_ExcessiveInternalWhitespace_SingleLine_Unchanged()
     {
-        // e.g. "Reason:                   reason" → "Reason: reason"
-        Assert.Equal("Reason: reason", Renderer.Truncate("Reason:                   reason"));
+        // Single-line values are returned as-is; whitespace is only collapsed for multi-line values.
+        var s = "Reason:                   reason";
+        Assert.Equal(s, Renderer.Truncate(s));
+    }
+
+    [Fact]
+    public void Truncate_MultilineExcessiveWhitespace_Collapsed()
+    {
+        // Multi-line values have whitespace collapsed when flattened.
+        Assert.Equal("Reason: reason", Renderer.Truncate("Reason:\n                  reason"));
     }
 
     // ── ParseArgList: label detection ─────────────────────────────────────────

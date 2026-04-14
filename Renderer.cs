@@ -102,9 +102,14 @@ public static class Renderer
                     "Failed" => "\u2717",   // ✗
                     _        => "\u25cb",   // ○
                 };
-                var dur          = FormatElapsed(t.Duration).PadLeft(6);
-                var safeDisplay  = WhitespaceRx.Replace(displayName.Trim(), " ");
-                tree.AddNode($"[{color}]{Esc(glyph)}[/] [grey]{Esc(dur)}[/] {Esc(safeDisplay)}");
+                var dur         = FormatElapsed(t.Duration).PadLeft(6);
+                var safe        = WhitespaceRx.Replace(displayName.Trim(), " ");
+                var paren       = safe.IndexOf('(');
+                var methodPart  = paren >= 0 ? safe[..paren] : safe;
+                var argsPart    = paren >= 0 ? safe[paren..] : "";
+                var nodeText    = $"[{color}]{Esc(glyph)}[/] [grey]{Esc(dur)}[/] {Esc(methodPart)}"
+                                + (argsPart.Length > 0 ? $"[grey]{Esc(argsPart)}[/]" : "");
+                tree.AddNode(nodeText);
             }
             AnsiConsole.Write(tree);
 
@@ -221,10 +226,13 @@ public static class Renderer
     private static string Esc(string s)          => Markup.Escape(s);
     internal static string StripAnsi(string s)   => AnsiRx.Replace(s, "");
 
-    // Collapse runs of whitespace (including newlines from multi-line values)
-    // to a single space, then truncate with '…' if still over the limit.
+    // Single-line values are kept as-is. Multi-line values (e.g. HtmlDescription
+    // containing \n) are flattened to one line and then truncated because the
+    // collapsed result can be arbitrarily long.
     internal static string Truncate(string s)
     {
+        if (!s.Contains('\n') && !s.Contains('\r'))
+            return s;
         var flat = WhitespaceRx.Replace(s.Trim(), " ");
         return flat.Length <= MaxArgValueLen ? flat : flat[..(MaxArgValueLen - 1)] + "…";
     }
