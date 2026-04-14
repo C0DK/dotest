@@ -109,7 +109,7 @@ public static class Renderer
                 var argsRaw     = paren >= 0 ? safe[(paren + 1)..^1].Trim() : "";
                 // 4 = tree connector "├── ", 1 = glyph, 1 = space, 6 = duration, 1 = space,
                 // methodPart.Length, 2 = surrounding "(" and ")"
-                var argBudget   = Math.Max(10, AnsiConsole.Profile.Width - 15 - methodPart.Length);
+                var argBudget   = Math.Max(10, AnsiConsole.Profile.Width - 17 - methodPart.Length);
                 var argsInner   = argsRaw.Length > argBudget
                                     ? argsRaw[..(argBudget - 1)] + "…" : argsRaw;
                 var nodeText    = $"[{color}]{Esc(glyph)}[/] [grey]{Esc(dur)}[/] {Esc(methodPart)}"
