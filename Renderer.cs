@@ -106,7 +106,9 @@ public static class Renderer
                 var safe        = WhitespaceRx.Replace(displayName.Trim(), " ");
                 var paren       = safe.IndexOf('(');
                 var methodPart  = paren >= 0 ? safe[..paren].TrimEnd() : safe;
-                var argsInner   = paren >= 0 ? safe[(paren + 1)..^1] : "";
+                var argsRaw     = paren >= 0 ? safe[(paren + 1)..^1].Trim() : "";
+                var argsInner   = argsRaw.Length > MaxTreeArgLen
+                                    ? argsRaw[..(MaxTreeArgLen - 1)] + "…" : argsRaw;
                 var nodeText    = $"[{color}]{Esc(glyph)}[/] [grey]{Esc(dur)}[/] {Esc(methodPart)}"
                                 + (argsInner.Length > 0 ? $"([silver]{Esc(argsInner)}[/])" : "");
                 tree.AddNode(nodeText);
@@ -221,7 +223,8 @@ public static class Renderer
 
     // ── Misc helpers ──────────────────────────────────────────────────────────
 
-    private const  int    MaxArgValueLen = 40;
+    private const  int    MaxArgValueLen  = 40;
+    private const  int    MaxTreeArgLen   = 60;
     private static readonly Regex WhitespaceRx = new(@"\s+", RegexOptions.Compiled);
     private static string Esc(string s)          => Markup.Escape(s);
     internal static string StripAnsi(string s)   => AnsiRx.Replace(s, "");
@@ -243,7 +246,7 @@ public static class Renderer
         for (int i = 0; i < names.Count; i++)
         {
             var p   = names[i].IndexOf('(');
-            var key = p >= 0 ? names[i][..p] : names[i];
+            var key = p >= 0 ? names[i][..p].TrimEnd() : names[i];
             if (!buckets.ContainsKey(key)) buckets[key] = [];
             buckets[key].Add(i);
         }
