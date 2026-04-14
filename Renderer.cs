@@ -105,10 +105,10 @@ public static class Renderer
                 var dur         = FormatElapsed(t.Duration).PadLeft(6);
                 var safe        = WhitespaceRx.Replace(displayName.Trim(), " ");
                 var paren       = safe.IndexOf('(');
-                var methodPart  = paren >= 0 ? safe[..paren] : safe;
-                var argsPart    = paren >= 0 ? safe[paren..] : "";
+                var methodPart  = paren >= 0 ? safe[..paren].TrimEnd() : safe;
+                var argsInner   = paren >= 0 ? safe[(paren + 1)..^1] : "";
                 var nodeText    = $"[{color}]{Esc(glyph)}[/] [grey]{Esc(dur)}[/] {Esc(methodPart)}"
-                                + (argsPart.Length > 0 ? $"[grey]{Esc(argsPart)}[/]" : "");
+                                + (argsInner.Length > 0 ? $"([silver]{Esc(argsInner)}[/])" : "");
                 tree.AddNode(nodeText);
             }
             AnsiConsole.Write(tree);

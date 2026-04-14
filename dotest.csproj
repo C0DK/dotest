@@ -13,7 +13,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotest</ToolCommandName>
     <PackageId>dotest</PackageId>
-    <Version>0.1.3</Version>
+    <Version>0.1.4</Version>
     <Authors>dotest contributors</Authors>
     <Description>A pretty wrapper around dotnet test with live progress, colorized failures, and compact summaries.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
