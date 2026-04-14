@@ -79,7 +79,11 @@ public static class Renderer
 
         foreach (var g in groups)
         {
-            var tree    = new Tree($"  [cyan]{Esc(g.Key)}[/]");
+            var anyFailed  = g.Any(t => t.Outcome == "Failed");
+            var anySkipped = !anyFailed && g.Any(t => t.Outcome == "Skipped");
+            var branchColor = anyFailed ? "red" : anySkipped ? "yellow" : "green";
+            var branchGlyph = anyFailed ? "\u2717" : anySkipped ? "\u25cb" : "\u2713";
+            var tree = new Tree($"  [{branchColor}]{branchGlyph}[/] [cyan]{Esc(g.Key)}[/]");
             var classPrefix = g.Key.Length > 0 ? g.Key + "." : "";
             var testList    = g.ToList();
 
@@ -257,20 +261,18 @@ public static class Renderer
 
     // ── Misc helpers ──────────────────────────────────────────────────────────
 
-    private const  int    MaxArgValueLen  = 40;
     private static readonly Regex WhitespaceRx = new(@"\s+", RegexOptions.Compiled);
     private static string Esc(string s)          => Markup.Escape(s);
     internal static string StripAnsi(string s)   => AnsiRx.Replace(s, "");
 
     // Single-line values are kept as-is. Multi-line values (e.g. HtmlDescription
-    // containing \n) are flattened to one line and then truncated because the
-    // collapsed result can be arbitrarily long.
+    // containing \n) are flattened to one line. Actual display truncation is done
+    // by RenderTree based on terminal width.
     internal static string Truncate(string s)
     {
         if (!s.Contains('\n') && !s.Contains('\r'))
             return s;
-        var flat = WhitespaceRx.Replace(s.Trim(), " ");
-        return flat.Length <= MaxArgValueLen ? flat : flat[..(MaxArgValueLen - 1)] + "…";
+        return WhitespaceRx.Replace(s.Trim(), " ");
     }
     internal static List<string> AlignArguments(List<string> names)
     {

@@ -99,9 +99,8 @@ static int Run(string[] args)
 
     if (verbose)
     {
-        if (passed.Count  > 0) { AnsiConsole.MarkupLine("\n[bold green]Passed[/]");   Renderer.RenderTree(passed); }
-        if (skipped.Count > 0) { AnsiConsole.MarkupLine("\n[bold yellow]Skipped[/]"); Renderer.RenderTree(skipped); }
-        if (failed.Count  > 0) { AnsiConsole.MarkupLine("\n[bold red]Failed[/]");     Renderer.RenderTree(failed); }
+        Console.WriteLine();
+        Renderer.RenderTree(results);
         Console.WriteLine();
     }
 

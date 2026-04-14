@@ -76,19 +76,19 @@ public class AlignArgumentsTests
         Assert.Equal("Theory(n: 42)", result[2]);
     }
 
-    // ── complex values are truncated, then aligned ───────────────────────────
+    // ── multi-line values flattened, then aligned ──────────────────────────────
 
     [Fact]
-    public void AlignArguments_LongMultilineValue_TruncatedThenAligned()
+    public void AlignArguments_MultilineValue_FlattenedThenAligned()
     {
-        // Multi-line values are flattened and truncated to MaxArgValueLen (40) before aligning.
-        var longVal = "line one\n" + new string('x', 42);
+        // Multi-line values are flattened to a single line before aligning.
+        // The full flattened length is used for column width (no 40-char truncation).
+        var longVal = "line one\n" + new string('x', 42);  // flattens to "line one " + 42x = 51 chars
         var names   = new List<string> { "M(v: 1)", $"M(v: {longVal})" };
         var result  = Renderer.AlignArguments(names);
-        // Short value padded to match truncated long value width (40 chars)
-        Assert.EndsWith("M(v: " + new string(' ', 39) + "1)", result[0]);
-        Assert.Contains("…",     result[1]);
-        Assert.DoesNotContain(longVal, result[1]);
+        // Short value padded to match flattened long value width
+        Assert.EndsWith("1)", result[0]);
+        Assert.DoesNotContain("\n", result[1]);
     }
 
     [Fact]
@@ -117,29 +117,22 @@ public class AlignArgumentsTests
     }
 
     [Fact]
-    public void Truncate_ExactlyMaxLen_Unchanged()
+    public void Truncate_LongSingleLine_Unchanged()
     {
-        var s = new string('a', 40);
+        // Single-line values are never truncated, regardless of length.
+        var s = new string('a', 200);
         Assert.Equal(s, Renderer.Truncate(s));
     }
 
     [Fact]
-    public void Truncate_MultilineLongerThanMax_EndsWithEllipsis()
+    public void Truncate_LongMultiline_FlattenedNotTruncated()
     {
-        // Multi-line values that flatten to more than 40 chars get truncated with '…'.
-        var s      = "aaaaaaaaaa\naaaaaaaaaa\naaaaaaaaaa\naaaaaaaaaa\naaa";  // flattens to 43 chars
+        // Multi-line values are flattened to a single line but NOT truncated.
+        // Display truncation is handled by the tree renderer based on terminal width.
+        var s      = "aaaaaaaaaa\naaaaaaaaaa\naaaaaaaaaa\naaaaaaaaaa\naaa";  // flattens to 47 chars (4 newlines → 4 spaces)
         var result = Renderer.Truncate(s);
-        Assert.Equal(40, result.Length);
-        Assert.EndsWith("…", result);
-    }
-
-    [Fact]
-    public void Truncate_SingleLineLongerThanMax_Unchanged()
-    {
-        // Single-line values are never truncated, regardless of length.
-        var s      = new string('a', 41);
-        var result = Renderer.Truncate(s);
-        Assert.Equal(s, result);
+        Assert.DoesNotContain("\n", result);
+        Assert.Equal("aaaaaaaaaa aaaaaaaaaa aaaaaaaaaa aaaaaaaaaa aaa", result);
     }
 
     [Fact]
