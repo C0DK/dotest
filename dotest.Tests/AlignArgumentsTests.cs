@@ -76,30 +76,59 @@ public class AlignArgumentsTests
         Assert.Equal("Theory(n: 42)", result[2]);
     }
 
-    // ── complex values skip alignment ────────────────────────────────────────
+    // ── complex values are truncated, then aligned ───────────────────────────
 
     [Fact]
-    public void AlignArguments_LongValue_SkipsAlignment()
+    public void AlignArguments_LongValue_TruncatedThenAligned()
     {
-        // Values over 50 chars should be left as-is to avoid absurdly wide output.
-        var longVal = new string('x', 51);
-        var names   = new List<string> { $"M(v: 1)", $"M(v: {longVal})" };
+        // A value longer than 40 chars is truncated with '…' before aligning.
+        var longVal = new string('x', 50);
+        var names   = new List<string> { "M(v: 1)", $"M(v: {longVal})" };
         var result  = Renderer.AlignArguments(names);
-        Assert.Equal($"M(v: 1)",       result[0]);
-        Assert.Equal($"M(v: {longVal})", result[1]);
+        // Short value padded to match truncated long value width (40 chars)
+        Assert.EndsWith("M(v: " + new string(' ', 39) + "1)", result[0]);
+        Assert.Contains("…",     result[1]);
+        Assert.DoesNotContain(longVal, result[1]);
     }
 
     [Fact]
-    public void AlignArguments_RecordValue_SkipsAlignment()
+    public void AlignArguments_RecordValue_TruncatedForDisplay()
     {
-        // Record values > 50 chars should skip alignment entirely.
+        // Record values with internal ", " must be parsed as a single argument
+        // (not split), then truncated if they exceed the max display length.
         var names = new List<string>
         {
             "M(order: Order { Id = 1, Total = 10, Description = \"long desc\" })",
             "M(order: Order { Id = 2, Total = 9999, Description = \"other\" })",
         };
         var result = Renderer.AlignArguments(names);
-        Assert.Equal(names, result);  // unchanged
+        // Both start with "M(order: " and contain '…' since values are > 40 chars.
+        Assert.All(result, r => Assert.StartsWith("M(order: ", r));
+        Assert.All(result, r => Assert.Contains("…", r));
+    }
+
+    // ── Truncate ──────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Truncate_ShortString_Unchanged()
+    {
+        Assert.Equal("hello", Renderer.Truncate("hello"));
+    }
+
+    [Fact]
+    public void Truncate_ExactlyMaxLen_Unchanged()
+    {
+        var s = new string('a', 40);
+        Assert.Equal(s, Renderer.Truncate(s));
+    }
+
+    [Fact]
+    public void Truncate_LongerThanMax_EndsWithEllipsis()
+    {
+        var s      = new string('a', 41);
+        var result = Renderer.Truncate(s);
+        Assert.Equal(40, result.Length);
+        Assert.EndsWith("…", result);
     }
 
     // ── ParseArgList: nested structures ──────────────────────────────────────

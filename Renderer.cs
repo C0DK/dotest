@@ -215,8 +215,11 @@ public static class Renderer
 
     // ── Misc helpers ──────────────────────────────────────────────────────────
 
+    private const  int    MaxArgValueLen = 40;
     private static string Esc(string s)               => Markup.Escape(s);
     internal static string StripAnsi(string s)         => AnsiRx.Replace(s, "");
+    internal static string Truncate(string s)          =>
+        s.Length <= MaxArgValueLen ? s : s[..(MaxArgValueLen - 1)] + "…";
     internal static List<string> AlignArguments(List<string> names)
     {
         // Group list indices by base name (e.g. "MyMethod" from "MyMethod(x: 1)").
@@ -234,15 +237,12 @@ public static class Renderer
         {
             if (indices.Count < 2) continue;  // nothing to align
 
-            // Parse "label: value" pairs for every variant in this bucket.
+            // Parse and truncate each value so columns stay a reasonable width.
             var parsed = indices
-                .Select(i => ParseArgList(names[i][(baseName.Length + 1)..^1]))
+                .Select(i => ParseArgList(names[i][(baseName.Length + 1)..^1])
+                             .Select(a => (a.label, value: Truncate(a.value)))
+                             .ToList())
                 .ToList();
-
-            // Skip alignment when any value is complex (record, HTML, long string).
-            // Padding such values produces excessively wide, unreadable output.
-            if (parsed.Any(args => args.Any(a => a.value.Length > 50)))
-                continue;
 
             // Find the widest value at each argument position.
             int maxArgs   = parsed.Max(a => a.Count);
