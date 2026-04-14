@@ -83,19 +83,22 @@ internal static class TestDiscovery
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    private static string FindSolutionRoot() =>
+        FindSolutionRoot(Directory.GetCurrentDirectory());
+
     /// <summary>
-    /// Walks up from the current directory until a directory containing a
-    /// <c>.sln</c> file is found.  Falls back to the current directory.
+    /// Walks up from <paramref name="startDir"/> until a directory containing
+    /// a <c>.sln</c> file is found.  Falls back to <paramref name="startDir"/>.
     /// </summary>
-    private static string FindSolutionRoot()
+    internal static string FindSolutionRoot(string startDir)
     {
-        var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
+        var dir = new DirectoryInfo(startDir);
         while (dir is not null)
         {
             if (dir.GetFiles("*.sln").Length > 0)
                 return dir.FullName;
             dir = dir.Parent;
         }
-        return Directory.GetCurrentDirectory();
+        return startDir;
     }
 }

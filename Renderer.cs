@@ -215,18 +215,9 @@ public static class Renderer
 
     // ── Misc helpers ──────────────────────────────────────────────────────────
 
-    private static string Esc(string s)      => Markup.Escape(s);
-    private static string StripAnsi(string s) => AnsiRx.Replace(s, "");
-
-    private static IEnumerable<string> SplitLines(string s) =>
-        s.Trim().Split('\n').Select(l => l.TrimEnd('\r'));
-
-    /// <summary>
-    /// For groups of names that share a base method name (the part before the
-    /// first <c>(</c>), right-aligns each positional argument value so the
-    /// columns line up across theory variants.
-    /// </summary>
-    private static List<string> AlignArguments(List<string> names)
+    private static string Esc(string s)               => Markup.Escape(s);
+    internal static string StripAnsi(string s)         => AnsiRx.Replace(s, "");
+    internal static List<string> AlignArguments(List<string> names)
     {
         // Group list indices by base name (e.g. "MyMethod" from "MyMethod(x: 1)").
         var buckets = new Dictionary<string, List<int>>();
@@ -266,11 +257,14 @@ public static class Renderer
         return result;
     }
 
+    private static IEnumerable<string> SplitLines(string s) =>
+        s.Trim().Split('\n').Select(l => l.TrimEnd('\r'));
+
     /// <summary>
     /// Splits an xUnit-style argument string such as
     /// <c>ms: 1000, expected: "1s"</c> into (label, value) pairs.
     /// </summary>
-    private static List<(string label, string value)> ParseArgList(string argsStr) =>
+    internal static List<(string label, string value)> ParseArgList(string argsStr) =>
         argsStr.Split(", ")
                .Select(a => { var i = a.IndexOf(": "); return i >= 0 ? (a[..i], a[(i + 2)..]) : ("", a); })
                .ToList();
