@@ -75,4 +75,59 @@ public class AlignArgumentsTests
         Assert.Equal("PlainTest",     result[1]);
         Assert.Equal("Theory(n: 42)", result[2]);
     }
+
+    // ── complex values skip alignment ────────────────────────────────────────
+
+    [Fact]
+    public void AlignArguments_LongValue_SkipsAlignment()
+    {
+        // Values over 50 chars should be left as-is to avoid absurdly wide output.
+        var longVal = new string('x', 51);
+        var names   = new List<string> { $"M(v: 1)", $"M(v: {longVal})" };
+        var result  = Renderer.AlignArguments(names);
+        Assert.Equal($"M(v: 1)",       result[0]);
+        Assert.Equal($"M(v: {longVal})", result[1]);
+    }
+
+    [Fact]
+    public void AlignArguments_RecordValue_SkipsAlignment()
+    {
+        // Record values > 50 chars should skip alignment entirely.
+        var names = new List<string>
+        {
+            "M(order: Order { Id = 1, Total = 10, Description = \"long desc\" })",
+            "M(order: Order { Id = 2, Total = 9999, Description = \"other\" })",
+        };
+        var result = Renderer.AlignArguments(names);
+        Assert.Equal(names, result);  // unchanged
+    }
+
+    // ── ParseArgList: nested structures ──────────────────────────────────────
+
+    [Fact]
+    public void ParseArgList_NestedBraces_NotSplitAtInnerComma()
+    {
+        var args = Renderer.ParseArgList("order: Order { Id = 1, Total = 10 }");
+        Assert.Single(args);
+        Assert.Equal("order",                       args[0].label);
+        Assert.Equal("Order { Id = 1, Total = 10 }", args[0].value);
+    }
+
+    [Fact]
+    public void ParseArgList_QuotedStringWithComma_NotSplit()
+    {
+        var args = Renderer.ParseArgList("s: \"hello, world\", n: 42");
+        Assert.Equal(2, args.Count);
+        Assert.Equal("\"hello, world\"", args[0].value);
+        Assert.Equal("42",               args[1].value);
+    }
+
+    [Fact]
+    public void ParseArgList_SimpleArgs_SplitCorrectly()
+    {
+        var args = Renderer.ParseArgList("ms: 1000, expected: \"1s\"");
+        Assert.Equal(2,       args.Count);
+        Assert.Equal("1000",  args[0].value);
+        Assert.Equal("\"1s\"", args[1].value);
+    }
 }

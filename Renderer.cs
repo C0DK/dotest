@@ -186,13 +186,13 @@ public static class Renderer
     {
         var trimmed = line.TrimStart();
         if (!trimmed.StartsWith("at ", StringComparison.Ordinal))
-            return $"   [grey]{Esc(trimmed)}[/]";
+            return $"   [lime]{Esc(trimmed)}[/]";
 
         var m = StackFrameRx.Match(trimmed);
         if (!m.Success)
-            return $"   [grey]{Esc(trimmed)}[/]";
+            return $"   [lime]{Esc(trimmed)}[/]";
 
-        return $"   [grey]at {Esc(m.Groups[1].Value)}[/]" +
+        return $"   [lime]at {Esc(m.Groups[1].Value)}[/]" +
                $" in [cyan]{Esc(m.Groups[2].Value)}[/]" +
                $"[yellow]:line {m.Groups[3].Value}[/]";
     }
@@ -239,6 +239,11 @@ public static class Renderer
                 .Select(i => ParseArgList(names[i][(baseName.Length + 1)..^1]))
                 .ToList();
 
+            // Skip alignment when any value is complex (record, HTML, long string).
+            // Padding such values produces excessively wide, unreadable output.
+            if (parsed.Any(args => args.Any(a => a.value.Length > 50)))
+                continue;
+
             // Find the widest value at each argument position.
             int maxArgs   = parsed.Max(a => a.Count);
             var maxWidths = new int[maxArgs];
@@ -261,11 +266,50 @@ public static class Renderer
         s.Trim().Split('\n').Select(l => l.TrimEnd('\r'));
 
     /// <summary>
-    /// Splits an xUnit-style argument string such as
-    /// <c>ms: 1000, expected: "1s"</c> into (label, value) pairs.
+    /// Splits an xUnit-style argument list into (label, value) pairs,
+    /// respecting nesting so that <c>", "</c> inside strings, records, or
+    /// collections is not treated as an argument separator.
     /// </summary>
-    internal static List<(string label, string value)> ParseArgList(string argsStr) =>
-        argsStr.Split(", ")
-               .Select(a => { var i = a.IndexOf(": "); return i >= 0 ? (a[..i], a[(i + 2)..]) : ("", a); })
-               .ToList();
+    internal static List<(string label, string value)> ParseArgList(string argsStr)
+    {
+        var result  = new List<(string, string)>();
+        var current = new StringBuilder();
+        int depth   = 0;
+        bool inStr  = false;
+
+        void Flush()
+        {
+            var s = current.ToString().Trim();
+            if (s.Length == 0) return;
+            var colon = s.IndexOf(": ");
+            result.Add(colon >= 0 ? (s[..colon], s[(colon + 2)..]) : ("", s));
+            current.Clear();
+        }
+
+        for (int i = 0; i < argsStr.Length; i++)
+        {
+            var c = argsStr[i];
+
+            if (c == '"' && (i == 0 || argsStr[i - 1] != '\\'))
+                inStr = !inStr;
+
+            if (!inStr)
+            {
+                if (c is '(' or '[' or '{') depth++;
+                else if (c is ')' or ']' or '}') depth--;
+                else if (c == ',' && depth == 0 &&
+                         i + 1 < argsStr.Length && argsStr[i + 1] == ' ')
+                {
+                    Flush();
+                    i++;   // skip the space after the comma
+                    continue;
+                }
+            }
+
+            current.Append(c);
+        }
+
+        Flush();
+        return result;
+    }
 }
