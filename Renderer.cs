@@ -117,7 +117,6 @@ public static class Renderer
             var spectreTree = new Tree($"[cyan]{Esc(commonPrefix)}[/]");
             foreach (var child in root.Children.Values.OrderBy(n => n.Name))
                 RenderHierNodeSummary(l => spectreTree.AddNode(l), child);
-            RenderLeafSummary(l => spectreTree.AddNode(l), root.Tests);
             AnsiConsole.Write(spectreTree);
         }
 
@@ -131,21 +130,12 @@ public static class Renderer
     private static void RenderHierNodeSummary(Func<string, TreeNode> addNode, HierNode node)
     {
         var color = node.AnyFailed ? "red" : node.AnySkipped ? "yellow" : "green";
-        var suffix = node.Tests.Count > 0 ? " " + SummaryMarkup(node.Tests) : "";
+        var all   = node.AllTests.ToList();
+        var suffix = all.Count > 0 ? " " + SummaryMarkup(all) : "";
         var spectreNode = addNode($"[{color}]{Esc(node.Name)}[/]{suffix}");
 
         foreach (var child in node.Children.Values.OrderBy(n => n.Name))
             RenderHierNodeSummary(l => spectreNode.AddNode(l), child);
-
-        RenderLeafSummary(l => spectreNode.AddNode(l), node.Tests);
-    }
-
-    private static void RenderLeafSummary(Func<string, TreeNode> addNode, List<TestResult> tests)
-    {
-        // When a HierNode itself holds tests AND children, we've already shown the
-        // count inline on the node label, so nothing extra to add here.
-        // This method is only called for the root node's direct tests (unusual).
-        _ = addNode; _ = tests;
     }
 
     private static string SummaryMarkup(IReadOnlyList<TestResult> tests)
@@ -249,6 +239,8 @@ public static class Renderer
         internal bool AnySkipped => !AnyFailed
                                  && (Tests.Any(t => t.Outcome is not "Passed" and not "Failed")
                                    || Children.Values.Any(c => c.AnySkipped));
+        internal IEnumerable<TestResult> AllTests =>
+            Tests.Concat(Children.Values.SelectMany(c => c.AllTests));
     }
 
     /// <summary>
