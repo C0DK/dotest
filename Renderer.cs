@@ -138,7 +138,7 @@ public static class Renderer
             RenderHierNodeSummary(l => spectreNode.AddNode(l), child);
     }
 
-    private static string SummaryMarkup(IReadOnlyList<TestResult> tests)
+    internal static string SummaryMarkup(IReadOnlyList<TestResult> tests)
     {
         if (tests.Count == 0) return "";
         var passed  = tests.Count(t => t.Outcome == "Passed");

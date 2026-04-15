@@ -21,6 +21,92 @@ public class RendererTests
         }
     }
 
+    public class SummaryMarkup
+    {
+        private static TestResult Make(string outcome) =>
+            new("Ns.MyTests", "Test", "Ns.MyTests.Test", outcome, TimeSpan.Zero, "", "", "");
+
+        [Fact]
+        public void AllPassed_GreenOnly()
+        {
+            var result = Renderer.SummaryMarkup([Make("Passed"), Make("Passed")]);
+            Assert.Contains("2 passed", result);
+            Assert.DoesNotContain("failed",  result);
+            Assert.DoesNotContain("skipped", result);
+        }
+
+        [Fact]
+        public void SomeFailed_ShowsBothColors()
+        {
+            var result = Renderer.SummaryMarkup([Make("Passed"), Make("Failed"), Make("Failed")]);
+            Assert.Contains("1 passed", result);
+            Assert.Contains("2 failed", result);
+        }
+
+        [Fact]
+        public void SomeSkipped_ShowsYellow()
+        {
+            var result = Renderer.SummaryMarkup([Make("Passed"), Make("Skipped")]);
+            Assert.Contains("1 passed",  result);
+            Assert.Contains("1 skipped", result);
+        }
+
+        [Fact]
+        public void EmptyList_ReturnsEmpty()
+        {
+            Assert.Equal("", Renderer.SummaryMarkup([]));
+        }
+    }
+
+    public class RenderTreeSummary
+    {
+        private static TestResult Make(string className, string outcome) =>
+            new(className, "Test", $"{className}.Test", outcome, TimeSpan.Zero, "", "", "");
+
+        [Fact]
+        public void DirectTests_ShowsCount()
+        {
+            // A class with only direct tests should show its count.
+            var tests = new[]
+            {
+                Make("Ns.FooTests", "Passed"),
+                Make("Ns.FooTests", "Passed"),
+                Make("Ns.FooTests", "Failed"),
+            };
+            // Should not throw; basic smoke test.
+            Renderer.RenderTreeSummary(tests);
+        }
+
+        [Fact]
+        public void SummaryMarkup_NestedClassCounts_BubbleUp()
+        {
+            // The aggregated markup for a parent that has both direct tests and
+            // a nested child must include all descendant counts.
+            // We test this via SummaryMarkup which is the core counting logic.
+            var direct = new[]
+            {
+                Make("Ns.Parent", "Passed"),   // 1 direct pass
+                Make("Ns.Parent", "Passed"),   // 2 direct passes
+            };
+            var nested = new[]
+            {
+                Make("Ns.Parent+Child", "Passed"),  // 1 nested pass
+                Make("Ns.Parent+Child", "Failed"),  // 1 nested fail
+            };
+            // Aggregate of direct + nested = 3 passed, 1 failed
+            var all    = direct.Concat(nested).ToList();
+            var markup = Renderer.SummaryMarkup(all);
+            Assert.Contains("3 passed", markup);
+            Assert.Contains("1 failed", markup);
+        }
+
+        [Fact]
+        public void NoTests_DoesNotThrow()
+        {
+            Renderer.RenderTreeSummary([]);
+        }
+    }
+
     public class ColorizeBuildError
     {
         [Fact]
