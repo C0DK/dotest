@@ -5,8 +5,6 @@ namespace dotest.Tests;
 
 public class TestDiscoveryTests
 {
-    // ── FindSolutionRoot ──────────────────────────────────────────────────────
-
     [Fact]
     public void FindSolutionRoot_DirectoryContainsSln_ReturnsThatDirectory()
     {

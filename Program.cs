@@ -11,6 +11,7 @@ static int Run(string[] args)
 {
     string? filter  = null;
     bool    verbose = false;
+    bool    compact = false;
 
     foreach (var arg in args)
     {
@@ -18,6 +19,9 @@ static int Run(string[] args)
         {
             case "-v" or "--verbose":
                 verbose = true;
+                break;
+            case "-c" or "--compact":
+                compact = true;
                 break;
             case "-h" or "--help":
                 PrintHelp();
@@ -103,6 +107,12 @@ static int Run(string[] args)
         Renderer.RenderTree(results);
         Console.WriteLine();
     }
+    else if (!compact)
+    {
+        Console.WriteLine();
+        Renderer.RenderTreeSummary(results);
+        Console.WriteLine();
+    }
 
     Renderer.RenderSummary(passed.Count, failed.Count, skipped.Count, sw.Elapsed);
     Console.WriteLine();
@@ -167,13 +177,15 @@ static void PrintHelp()
     Console.WriteLine("  [filter]    Substring matched via FullyQualifiedName~<filter>");
     Console.WriteLine();
     Console.WriteLine("OPTIONS:");
-    Console.WriteLine("  -v, --verbose    Show all tests in a tree grouped by class");
+    Console.WriteLine("  -v, --verbose    Show full tree with every individual test");
+    Console.WriteLine("  -c, --compact    Compact output: failures and summary only, no tree");
     Console.WriteLine("  -h, --help       Show this help");
     Console.WriteLine();
     Console.WriteLine("EXAMPLES:");
-    Console.WriteLine("  dotest                       Run all tests");
+    Console.WriteLine("  dotest                       Run all tests (summary tree + failures)");
     Console.WriteLine("  dotest Portland.Worker       Run tests matching Portland.Worker");
-    Console.WriteLine("  dotest CreateBacktest -v     Verbose tree for matching tests");
+    Console.WriteLine("  dotest -c                    Compact: failures and summary only");
+    Console.WriteLine("  dotest CreateBacktest -v     Full tree for matching tests");
     Console.WriteLine();
     Console.WriteLine("INSTALL:");
     Console.WriteLine("  dotnet tool install -g dotest");

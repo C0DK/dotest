@@ -18,12 +18,15 @@ The original implementation was a ~340-line nushell script (`dotest.nu` in
 1. **Live single-line progress** — count + failures + elapsed, overwrites in
    place, disappears when done.
 2. **Unicode failure boxes** — test name and duration badge embedded in the top
-   border; sections for Error, Output, Stack Trace; colorized stack frames.
+   border via Spectre.Console Panel; sections for Error, Output, Stack Trace.
 3. **Compact summary** — `PASS  39 passed, 3 skipped  3.7s`
-4. **Verbose mode (`-v`)** — tree grouped by class, ✓ / ✗ / ○ icons, stdout
+4. **Default tree mode** — hierarchy of namespaces/classes with pass/fail counts
+   at each leaf node; no individual test lines.
+5. **Verbose mode (`-v`)** — full tree with every test, ✓ / ✗ / ○ icons, stdout
    under each test.
-5. **Filter** — `dotest Portland.Worker` → `--filter FullyQualifiedName~Portland.Worker`
-6. **Build error capture** — colorized error lines when compilation fails.
+6. **Compact mode (`-c`)** — failures and summary only, no tree.
+7. **Filter** — `dotest Portland.Worker` → substring match on `FullyQualifiedName`
+8. **Build error capture** — colorized error lines when compilation fails.
 
 Every design decision should serve "I want to scan failures instantly."
 
@@ -31,71 +34,67 @@ Every design decision should serve "I want to scan failures instantly."
 
 ## Architecture
 
-Single-project .NET 8 tool. Four source files:
+Single-project .NET 10 tool. Source files:
 
 | File | Responsibility |
 |------|---------------|
-| `Program.cs` | Arg parsing, process start, stdout streaming (live progress), orchestration |
-| `TrxParser.cs` | Parse `*.trx` XML files from the temp results directory |
+| `Program.cs` | Arg parsing, orchestration, build → discover → run → render flow |
+| `Builder.cs` | Runs `dotnet build`, captures build errors |
+| `TestDiscovery.cs` | Finds `.sln` root, test assemblies, and `vstest.console.dll` |
+| `DiscoveryHandler.cs` | `ITestDiscoveryEventsHandler` — collects `TestCase` list |
+| `TestRunHandler.cs` | `ITestRunEventsHandler` — converts `VsTestResult` → `TestResult` |
 | `TestResult.cs` | `record` model for a single test case |
-| `Renderer.cs` | Failure boxes, verbose tree, summary line, build-error colorization |
+| `Renderer.cs` | Failure boxes, summary tree, verbose tree, summary line, build-error colorization |
 
 ### How tests run
 
-`Program.cs` builds these arguments and starts `dotnet` as a child process with
-redirected stdout/stderr:
+`Program.cs` orchestrates three steps inside `AnsiConsole.Status()`:
 
-```
-dotnet test --nologo --results-directory <tmpdir> --logger "trx;LogFilePrefix=res" [--filter FullyQualifiedName~<filter>]
-```
+1. **Build** — `Builder.Build()` runs `dotnet build --nologo` and captures any
+   lines containing `: error ` as build errors.
 
-Stdout is read line-by-line. Lines starting with `Passed ` or `Failed ` (after
-trimming) drive the live progress counter — this matches the NUnit3 adapter's
-default output format. Lines containing `: error ` are saved as build errors.
+2. **Discover assemblies** — `TestDiscovery.FindTestAssemblies()` scans `.csproj`
+   files under the solution root for those referencing `Microsoft.NET.Test.Sdk`,
+   then resolves each to its output `.dll` via `dotnet msbuild -getProperty:TargetPath`.
 
-Stderr is drained into a background `Task` to prevent pipe-buffer deadlock.
+3. **Run via TranslationLayer** — `VsTestConsoleWrapper` is constructed with the
+   path to `vstest.console.dll` (found via `dotnet --info` Base Path). Tests are
+   first discovered with `DiscoveryHandler`, then filtered client-side on
+   `FullyQualifiedName`, then run via `TestRunHandler`.
 
-After the process exits, TRX files are parsed and the temp dir is deleted.
-
-### TRX parsing
-
-`TrxParser.cs` uses `System.Xml.Linq` (XDocument). It matches elements by
-`LocalName` to avoid namespace-handling complexity.
-
-TRX schema summary:
-- `TestRun/Results/UnitTestResult[@testId, @testName, @outcome, @duration]`
-- `UnitTestResult/Output/StdOut`
-- `UnitTestResult/Output/ErrorInfo/Message`
-- `UnitTestResult/Output/ErrorInfo/StackTrace`
-- `TestRun/TestDefinitions/UnitTest[@id]/TestMethod[@className]`
-
-Class name comes from `TestDefinitions`, not from the result — looked up via
-`testId`. This is the same approach as the nushell version.
+`TestRunHandler` converts `VsTestResult` → `TestResult` and calls a callback on
+each result; `Program.cs` updates the live Spectre status line from that callback.
 
 ### Rendering
 
-`Renderer.cs` does all output. Two compiled `Regex` instances (no
-`[GeneratedRegex]` to keep the class non-partial):
+`Renderer.cs` does all output. Three compiled `Regex` instances:
 
 - `StackFrameRx` — matches `at Method() in /path/File.cs:line N`
 - `BuildErrorRx` — matches `/path/File.cs(line,col): error CODE: message`
+- `AnsiRx` — strips ANSI/VT escape sequences from test stdout before Spectre rendering
 
-**Failure boxes** are rendered manually (not Spectre.Console Panel) because we
-need the test name and duration badge embedded in the top border with precise
-width control. The box width adapts to the terminal width via
-`Console.WindowWidth`.
+**Failure boxes** use `Spectre.Console Panel` with `Expand()` — no manual width
+calculations. ANSI codes in test stdout are stripped via `AnsiRx` before passing
+to Spectre Markup.
 
-**Stdout in failure boxes** is written via raw `Console.WriteLine()` after a
-Spectre.Console markup border character — this preserves any ANSI escape codes
-that test output may contain (e.g. Serilog-colored logs).
+**Summary tree (default)** — `RenderTreeSummary()` builds the same `HierNode`
+hierarchy as the verbose tree but renders pass/fail counts at leaf nodes instead
+of individual test lines. No per-test stdout panels.
 
-**Verbose tree** delegates to `Spectre.Console.Tree` for polished connectors.
+**Verbose tree** — `RenderTree()` uses `Spectre.Console.Tree` for polished
+connectors. Each test is a leaf node with glyph, duration, and argument list.
+Theory variants are column-aligned via `AlignArguments()`. Arguments that exceed
+the terminal width are right-truncated with `…`. Stdout is rendered in a raw
+`Console.Write()` panel after all trees so ANSI codes are preserved.
 
-**Progress line** uses raw ANSI escape codes written to `Console.Write()`:
-- `\x1b[2K\r` — clear current line and return to column 0
-- `\x1b[36m` / `\x1b[31m` / `\x1b[90m` / `\x1b[0m` — cyan / red / dark-grey / reset
+**Hierarchical grouping** — `FindCommonPrefixParts()` finds the longest shared
+dot-separated prefix across all class names and uses it as the tree root. Nested
+xUnit classes (which use `+` as separator in `FullyQualifiedName`) are split on
+both `.` and `+`. Color of intermediate nodes reflects worst child outcome:
+red > yellow > green.
 
-Progress is skipped when `Console.IsOutputRedirected` is true (CI, pipes).
+**Terminal width** — uses `Console.IsOutputRedirected ? 120 : Console.WindowWidth`
+(not `AnsiConsole.Profile.Width` which defaults to 80 in some environments).
 
 ---
 
@@ -118,16 +117,14 @@ dotnet tool uninstall -g dotest   # to remove
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `Spectre.Console` | 0.49.1 | Markup, Tree rendering, color support |
-
-No other third-party dependencies. TRX parsing and process management use BCL
-types only.
+| `Spectre.Console` | 0.49.1 | Panel, Tree, Markup, Status spinner |
+| `Microsoft.TestPlatform.ObjectModel` | 18.0.1 | `TestCase`, `TestResult` types |
+| `Microsoft.TestPlatform.TranslationLayer` | 18.0.1 | `VsTestConsoleWrapper`, event handler interfaces |
+| `Newtonsoft.Json` | 13.0.3 | Required by TranslationLayer internals |
 
 ---
 
 ## Things to add (not yet implemented)
-
-These were listed in the original primer as future ideas:
 
 - `--watch` — rerun on file change (wrap `dotnet watch test`)
 - `--failed` — rerun only previously failed tests (cache last run results)
@@ -135,8 +132,6 @@ These were listed in the original primer as future ideas:
 - JUnit XML output for CI
 - Coverage integration (coverlet + pretty summary)
 - Parallel project runs with unified progress bar
-- `TranslationLayer` approach for real-time events instead of stdout parsing
-  (would make progress correct for non-NUnit adapters)
 
 ## Nushell → C# translation notes
 

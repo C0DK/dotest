@@ -10,16 +10,16 @@ with a compact, human-friendly format.
 becomes
 
 ```
-┏━ Portland.Worker.Test.CreateBacktestTests.ShouldReturnPositions  failed after 1.2s ━━━━━━━━━━┓
+┏━ Portland.Worker.Test.CreateBacktestTests.ShouldReturnPositions  failed after 1.2s ━━━━━━━━━━━┓
 ┃                                                                                               ┃
 ┃ Error                                                                                         ┃
 ┃   Expected: 3 items                                                                           ┃
 ┃   But was:  2 items                                                                           ┃
 ┠───────────────────────────────────────────────────────────────────────────────────────────────┨
 ┃ Stack Trace                                                                                   ┃
-┃   at CreateBacktestTests.ShouldReturnPositions() in /src/Tests/CreateBacktestTests.cs:line 84┃
+┃   at CreateBacktestTests.ShouldReturnPositions() in /src/Tests/CreateBacktestTests.cs:line 84 ┃
 ┃                                                                                               ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 PASS  39 passed, 1 failed, 3 skipped  4.1s
 ```
@@ -30,7 +30,8 @@ PASS  39 passed, 1 failed, 3 skipped  4.1s
 - **Unicode failure boxes** with the test name and duration in the border, plus Error / Output / Stack Trace sections
 - **Colorized stack frames** — grey method, cyan file path, yellow `:line N`
 - **Compact summary** — `PASS  39 passed, 3 skipped  3.7s` / `FAIL  2 failed  3.7s`
-- **Verbose mode (`-v`)** — tree grouped by class name with ✓ / ✗ / ○ icons and captured stdout
+- **Summary tree (default)** — hierarchy of namespaces/classes with pass/fail counts per node, no individual test lines
+- **Verbose mode (`-v`)** — full tree with every test, ✓ / ✗ / ○ icons and captured stdout
 - **Filter by substring** — `dotest Portland.Worker` → `--filter FullyQualifiedName~Portland.Worker`
 - **Build error capture** — when compilation fails, shows colorized error lines instead of just "build may have failed"
 - **Proper exit codes** — exits 1 on failures or build errors, 0 on pass
@@ -72,29 +73,42 @@ ARGS:
   [filter]    Substring matched via FullyQualifiedName~<filter>
 
 OPTIONS:
-  -v, --verbose    Show all tests in a tree grouped by class
+  -v, --verbose    Show full tree with every individual test
+  -c, --compact    Compact output: failures and summary only, no tree
   -h, --help       Show this help
 
 EXAMPLES:
-  dotest                       Run all tests
+  dotest                       Run all tests (summary tree + failures)
   dotest Portland.Worker       Run tests matching Portland.Worker
-  dotest CreateBacktest -v     Verbose tree for matching tests
+  dotest -c                    Compact: failures and summary only
+  dotest CreateBacktest -v     Full tree for matching tests
+```
+
+### Default tree (no flags)
+
+Shows a hierarchy of namespaces and classes, with pass/fail counts at each node
+but no individual test lines. Failure boxes still appear before the summary.
+
+```
+Portland
+└── Core.Test
+    ├── PositionTests  2 passed
+    └── OrderTests     5 passed
 ```
 
 ### Verbose tree (`-v`)
 
-Shows every test grouped by class, with icons and per-test stdout:
+Shows every test in the full hierarchy, with icons and per-test stdout:
 
 ```
-Passed
-  Portland.Core.Test.PositionTests
-  ├── ✓ ShouldCalculateNetValue [12ms]
-  └── ✓ ShouldHandleEmptyPortfolio [5ms]
-
-Failed
-  Portland.Worker.Test.CreateBacktestTests
-  └── ✗ ShouldReturnPositions [1.2s]
-      └── Expected: 3 items …
+Portland
+├── Core.Test
+│   └── PositionTests
+│       ├── ✓   12ms ShouldCalculateNetValue
+│       └── ✓    5ms ShouldHandleEmptyPortfolio
+└── Worker.Test
+    └── CreateBacktestTests
+        └── ✗  1.2s ShouldReturnPositions
 ```
 
 ### Filter
@@ -108,21 +122,15 @@ dotest CreateBacktest           # matches specific test classes or methods
 
 ## How it works
 
-`dotest` runs `dotnet test` with a TRX logger:
+`dotest` first runs `dotnet build`, then uses the VSTest **TranslationLayer**
+(`VsTestConsoleWrapper`) to run tests in-process:
 
-```
-dotnet test --nologo --results-directory <tmpdir> --logger "trx;LogFilePrefix=res" [--filter ...]
-```
+1. Discovers test assemblies by scanning `.csproj` files for `Microsoft.NET.Test.Sdk`
+2. Discovers all test cases, then applies the filter client-side
+3. Receives real-time `TestResult` events as each test completes
+4. Renders failures, tree, and summary once all tests finish
 
-Stdout is streamed line-by-line while the process runs to update the live
-progress counter. After the process exits, the TRX result file is parsed for
-structured output — error messages, stack traces, captured stdout, and class
-names. TRX is the VSTest standard format and works with all test adapters
-(NUnit, xUnit, MSTest).
-
-> **Note:** A future improvement is to use the VSTest `TranslationLayer`
-> (`VsTestConsoleWrapper`) to receive test events directly in-process, which
-> would provide real-time per-test results without any stdout parsing.
+This approach works with all adapters (NUnit, xUnit, MSTest) without scraping stdout.
 
 ## License
 

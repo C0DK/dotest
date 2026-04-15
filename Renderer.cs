@@ -66,6 +66,101 @@ public static class Renderer
         AnsiConsole.Write(panel);
     }
 
+    // ── Summary tree (default) ───────────────────────────────────────────────
+
+    /// <summary>
+    /// Render a compact tree showing namespaces and classes with pass/fail
+    /// counts at each leaf — no individual test lines.
+    /// </summary>
+    public static void RenderTreeSummary(IReadOnlyList<TestResult> tests)
+    {
+        var byClass = tests
+            .GroupBy(t => string.IsNullOrEmpty(t.ClassName) ? "" : t.ClassName)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var namedClasses = byClass.Keys.Where(k => k.Length > 0).ToList();
+        var commonParts  = FindCommonPrefixParts(namedClasses);
+        var commonPrefix = string.Join(".", commonParts);
+
+        if (commonPrefix.Length == 0)
+        {
+            foreach (var (className, classTests) in byClass
+                .Where(kv => kv.Key.Length > 0).OrderBy(kv => kv.Key))
+            {
+                var anyF = classTests.Any(t => t.Outcome == "Failed");
+                var anyS = !anyF && classTests.Any(t => t.Outcome is not "Passed" and not "Failed");
+                var col  = anyF ? "red" : anyS ? "yellow" : "green";
+                var t    = new Tree($"[{col}]{Esc(className)}[/] {SummaryMarkup(classTests)}");
+                AnsiConsole.Write(t);
+            }
+        }
+        else
+        {
+            var root = new HierNode(commonPrefix);
+            foreach (var (className, classTests) in byClass.Where(kv => kv.Key.Length > 0))
+            {
+                var relative = className.Length > commonPrefix.Length
+                    ? className[(commonPrefix.Length + 1)..] : "";
+                var segments = relative.Length == 0
+                    ? [] : relative.Split(['.', '+']);
+
+                var node = root;
+                foreach (var seg in segments)
+                {
+                    if (!node.Children.TryGetValue(seg, out var child))
+                        node.Children[seg] = child = new HierNode(seg);
+                    node = child;
+                }
+                node.Tests.AddRange(classTests);
+            }
+
+            var spectreTree = new Tree($"[cyan]{Esc(commonPrefix)}[/]");
+            foreach (var child in root.Children.Values.OrderBy(n => n.Name))
+                RenderHierNodeSummary(l => spectreTree.AddNode(l), child);
+            RenderLeafSummary(l => spectreTree.AddNode(l), root.Tests);
+            AnsiConsole.Write(spectreTree);
+        }
+
+        if (byClass.TryGetValue("", out var unknownTests))
+        {
+            var unknownTree = new Tree($"[grey](unknown class)[/] {SummaryMarkup(unknownTests)}");
+            AnsiConsole.Write(unknownTree);
+        }
+    }
+
+    private static void RenderHierNodeSummary(Func<string, TreeNode> addNode, HierNode node)
+    {
+        var color = node.AnyFailed ? "red" : node.AnySkipped ? "yellow" : "green";
+        var suffix = node.Tests.Count > 0 ? " " + SummaryMarkup(node.Tests) : "";
+        var spectreNode = addNode($"[{color}]{Esc(node.Name)}[/]{suffix}");
+
+        foreach (var child in node.Children.Values.OrderBy(n => n.Name))
+            RenderHierNodeSummary(l => spectreNode.AddNode(l), child);
+
+        RenderLeafSummary(l => spectreNode.AddNode(l), node.Tests);
+    }
+
+    private static void RenderLeafSummary(Func<string, TreeNode> addNode, List<TestResult> tests)
+    {
+        // When a HierNode itself holds tests AND children, we've already shown the
+        // count inline on the node label, so nothing extra to add here.
+        // This method is only called for the root node's direct tests (unusual).
+        _ = addNode; _ = tests;
+    }
+
+    private static string SummaryMarkup(IReadOnlyList<TestResult> tests)
+    {
+        if (tests.Count == 0) return "";
+        var passed  = tests.Count(t => t.Outcome == "Passed");
+        var failed  = tests.Count(t => t.Outcome == "Failed");
+        var skipped = tests.Count - passed - failed;
+        var parts   = new List<string>();
+        if (passed  > 0) parts.Add($"[green]{passed} passed[/]");
+        if (failed  > 0) parts.Add($"[red]{failed} failed[/]");
+        if (skipped > 0) parts.Add($"[yellow]{skipped} skipped[/]");
+        return string.Join(", ", parts);
+    }
+
     // ── Verbose tree ─────────────────────────────────────────────────────────
 
     /// <summary>

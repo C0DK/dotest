@@ -5,8 +5,6 @@ namespace dotest.Tests;
 
 public class AlignArgumentsTests
 {
-    // ── single entry – nothing to align ──────────────────────────────────────
-
     [Fact]
     public void AlignArguments_SingleEntry_Unchanged()
     {
@@ -21,8 +19,6 @@ public class AlignArgumentsTests
         var result = Renderer.AlignArguments(names);
         Assert.Equal(names, result);
     }
-
-    // ── numeric value alignment ───────────────────────────────────────────────
 
     [Fact]
     public void AlignArguments_TwoVariants_RightAlignsNumericValue()
@@ -44,8 +40,6 @@ public class AlignArgumentsTests
         Assert.Equal("M(a: 100, b: \"hello\")", result[1]);
     }
 
-    // ── method grouping ───────────────────────────────────────────────────────
-
     [Fact]
     public void AlignArguments_DifferentMethods_AlignedWithinEachGroup()
     {
@@ -60,8 +54,6 @@ public class AlignArgumentsTests
         Assert.Equal("MethodA(x: 10)", result[2]);
     }
 
-    // ── mixed: theories and plain tests side-by-side ─────────────────────────
-
     [Fact]
     public void AlignArguments_MixedParensAndNoParens_HandledSeparately()
     {
@@ -75,8 +67,6 @@ public class AlignArgumentsTests
         Assert.Equal("PlainTest",     result[1]);
         Assert.Equal("Theory(n: 42)", result[2]);
     }
-
-    // ── multi-line values flattened, then aligned ──────────────────────────────
 
     [Fact]
     public void AlignArguments_MultilineValue_FlattenedThenAligned()
@@ -107,8 +97,6 @@ public class AlignArgumentsTests
         Assert.DoesNotContain("…", result[0]);
         Assert.DoesNotContain("…", result[1]);
     }
-
-    // ── Truncate ──────────────────────────────────────────────────────────────
 
     [Fact]
     public void Truncate_ShortString_Unchanged()
@@ -159,8 +147,6 @@ public class AlignArgumentsTests
         Assert.Equal("Reason: reason", Renderer.Truncate("Reason:\n                  reason"));
     }
 
-    // ── ParseArgList: label detection ─────────────────────────────────────────
-
     [Fact]
     public void ParseArgList_LabelWithColonInsideRecord_NotSplitAsLabel()
     {
@@ -180,8 +166,6 @@ public class AlignArgumentsTests
         Assert.Equal("input", args[0].label);
         Assert.Equal("42",    args[0].value);
     }
-
-    // ── ParseArgList: nested structures ──────────────────────────────────────
 
     [Fact]
     public void ParseArgList_NestedBraces_NotSplitAtInnerComma()
