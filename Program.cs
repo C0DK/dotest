@@ -98,9 +98,6 @@ static int Run(string[] args)
     var passed  = results.Where(t => t.Outcome == "Passed").ToList();
     var skipped = results.Where(t => t.Outcome != "Failed" && t.Outcome != "Passed").ToList();
 
-    foreach (var t in failed)
-        Renderer.RenderFailure(t);
-
     if (verbose)
     {
         Console.WriteLine();
@@ -113,6 +110,9 @@ static int Run(string[] args)
         Renderer.RenderTreeSummary(results);
         Console.WriteLine();
     }
+
+    foreach (var t in failed)
+        Renderer.RenderFailure(t);
 
     Renderer.RenderSummary(passed.Count, failed.Count, skipped.Count, sw.Elapsed);
     Console.WriteLine();
