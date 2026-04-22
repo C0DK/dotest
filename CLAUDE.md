@@ -25,8 +25,11 @@ The original implementation was a ~340-line nushell script (`dotest.nu` in
 5. **Verbose mode (`-v`)** — full tree with every test, ✓ / ✗ / ○ icons, stdout
    under each test.
 6. **Compact mode (`-c`)** — failures and summary only, no tree.
-7. **Filter** — `dotest Portland.Worker` → substring match on `FullyQualifiedName`
-8. **Build error capture** — colorized error lines when compilation fails.
+7. **Fail-fast mode (`-f`)** — stop after the first test failure; shows failure
+   box and summary, skips the tree (run is incomplete). Implemented via
+   `wrapper.CancelTestRun()` called from `TestRunHandler` on first failure.
+8. **Filter** — `dotest Portland.Worker` → substring match on `FullyQualifiedName`
+9. **Build error capture** — colorized error lines when compilation fails.
 
 Every design decision should serve "I want to scan failures instantly."
 

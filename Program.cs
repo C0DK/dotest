@@ -9,9 +9,10 @@ return Run(args);
 
 static int Run(string[] args)
 {
-    string? filter  = null;
-    bool    verbose = false;
-    bool    compact = false;
+    string? filter   = null;
+    bool    verbose  = false;
+    bool    compact  = false;
+    bool    failFast = false;
 
     foreach (var arg in args)
     {
@@ -22,6 +23,9 @@ static int Run(string[] args)
                 break;
             case "-c" or "--compact":
                 compact = true;
+                break;
+            case "-f" or "--fail-fast":
+                failFast = true;
                 break;
             case "-h" or "--help":
                 PrintHelp();
@@ -71,7 +75,7 @@ static int Run(string[] args)
                 ctx.Status(status);
             }
 
-            RunTests(assemblies, filter, OnResult);
+            RunTests(assemblies, filter, OnResult, failFast);
         });
 
     sw.Stop();
@@ -98,23 +102,29 @@ static int Run(string[] args)
     var passed  = results.Where(t => t.Outcome == "Passed").ToList();
     var skipped = results.Where(t => t.Outcome != "Failed" && t.Outcome != "Passed").ToList();
 
-    if (verbose)
+    var stopped = failFast && failed.Count > 0;
+
+    if (!stopped)
     {
-        Console.WriteLine();
-        Renderer.RenderTree(results);
-        Console.WriteLine();
-    }
-    else if (!compact)
-    {
-        Console.WriteLine();
-        Renderer.RenderTreeSummary(results);
-        Console.WriteLine();
+        if (verbose)
+        {
+            Console.WriteLine();
+            Renderer.RenderTree(results);
+            Console.WriteLine();
+        }
+        else if (!compact)
+        {
+            Console.WriteLine();
+            Renderer.RenderTreeSummary(results);
+            Console.WriteLine();
+        }
     }
 
     foreach (var t in failed)
         Renderer.RenderFailure(t);
 
     Renderer.RenderSummary(passed.Count, failed.Count, skipped.Count, sw.Elapsed);
+    if (stopped) AnsiConsole.MarkupLine("[grey](stopped after first failure)[/]");
     Console.WriteLine();
 
     return failed.Count > 0 ? 1 : 0;
@@ -122,7 +132,7 @@ static int Run(string[] args)
 
 // ── Test run ──────────────────────────────────────────────────────────────────
 
-static void RunTests(List<string> assemblies, string? filter, Action<TestResult> onResult)
+static void RunTests(List<string> assemblies, string? filter, Action<TestResult> onResult, bool failFast = false)
 {
     var logFile = Path.Combine(Path.GetTempPath(), $"dotest-{Guid.NewGuid():N}.log");
     try
@@ -149,7 +159,10 @@ static void RunTests(List<string> assemblies, string? filter, Action<TestResult>
                 .ToList();
 
         if (testCases.Count > 0)
-            wrapper.RunTests(testCases, "<RunSettings/>", new TestRunHandler(onResult));
+        {
+            Action? cancelRun = failFast ? () => wrapper.CancelTestRun() : null;
+            wrapper.RunTests(testCases, "<RunSettings/>", new TestRunHandler(onResult, failFast, cancelRun));
+        }
 
         wrapper.EndSession();
     }
@@ -168,7 +181,7 @@ static void RunTests(List<string> assemblies, string? filter, Action<TestResult>
 
 static void PrintHelp()
 {
-    Console.WriteLine("dotest \u2013 pretty wrapper around dotnet test");
+    Console.WriteLine("dotest – pretty wrapper around dotnet test");
     Console.WriteLine();
     Console.WriteLine("USAGE:");
     Console.WriteLine("  dotest [filter] [options]");
@@ -179,12 +192,14 @@ static void PrintHelp()
     Console.WriteLine("OPTIONS:");
     Console.WriteLine("  -v, --verbose    Show full tree with every individual test");
     Console.WriteLine("  -c, --compact    Compact output: failures and summary only, no tree");
+    Console.WriteLine("  -f, --fail-fast  Stop after the first test failure");
     Console.WriteLine("  -h, --help       Show this help");
     Console.WriteLine();
     Console.WriteLine("EXAMPLES:");
     Console.WriteLine("  dotest                       Run all tests (summary tree + failures)");
     Console.WriteLine("  dotest Portland.Worker       Run tests matching Portland.Worker");
     Console.WriteLine("  dotest -c                    Compact: failures and summary only");
+    Console.WriteLine("  dotest -f                    Stop on first failure");
     Console.WriteLine("  dotest CreateBacktest -v     Full tree for matching tests");
     Console.WriteLine();
     Console.WriteLine("INSTALL:");

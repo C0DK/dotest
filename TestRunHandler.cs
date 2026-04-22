@@ -13,14 +13,32 @@ namespace Dotest;
 internal sealed class TestRunHandler : ITestRunEventsHandler
 {
     private readonly Action<TestResult> _onResult;
+    private readonly bool    _failFast;
+    private readonly Action? _cancelRun;
+    private volatile bool    _aborting;
 
-    internal TestRunHandler(Action<TestResult> onResult) => _onResult = onResult;
+    internal TestRunHandler(Action<TestResult> onResult, bool failFast = false, Action? cancelRun = null)
+    {
+        _onResult  = onResult;
+        _failFast  = failFast;
+        _cancelRun = cancelRun;
+    }
 
     public void HandleTestRunStatsChange(TestRunChangedEventArgs? args)
     {
         if (args?.NewTestResults is null) return;
         foreach (var r in args.NewTestResults)
-            _onResult(Convert(r));
+        {
+            if (_aborting) return;
+            var result = Convert(r);
+            _onResult(result);
+            if (_failFast && result.Outcome == "Failed")
+            {
+                _aborting = true;
+                _cancelRun?.Invoke();
+                return;
+            }
+        }
     }
 
     public void HandleTestRunComplete(
@@ -29,9 +47,18 @@ internal sealed class TestRunHandler : ITestRunEventsHandler
         ICollection<AttachmentSet>? attachments,
         ICollection<string>?        executorUris)
     {
-        if (lastChunk?.NewTestResults is null) return;
+        if (_aborting || lastChunk?.NewTestResults is null) return;
         foreach (var r in lastChunk.NewTestResults)
-            _onResult(Convert(r));
+        {
+            if (_aborting) return;
+            var result = Convert(r);
+            _onResult(result);
+            if (_failFast && result.Outcome == "Failed")
+            {
+                _aborting = true;
+                return;
+            }
+        }
     }
 
     public void HandleLogMessage(TestMessageLevel level, string? message) { }

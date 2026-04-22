@@ -32,6 +32,7 @@ PASS  39 passed, 1 failed, 3 skipped  4.1s
 - **Compact summary** — `PASS  39 passed, 3 skipped  3.7s` / `FAIL  2 failed  3.7s`
 - **Summary tree (default)** — hierarchy of namespaces/classes with pass/fail counts per node, no individual test lines
 - **Verbose mode (`-v`)** — full tree with every test, ✓ / ✗ / ○ icons and captured stdout
+- **Fail-fast mode (`-f`)** — stop after the first test failure; shows the failure box and summary immediately
 - **Filter by substring** — `dotest Portland.Worker` → `--filter FullyQualifiedName~Portland.Worker`
 - **Build error capture** — when compilation fails, shows colorized error lines instead of just "build may have failed"
 - **Proper exit codes** — exits 1 on failures or build errors, 0 on pass
@@ -75,12 +76,14 @@ ARGS:
 OPTIONS:
   -v, --verbose    Show full tree with every individual test
   -c, --compact    Compact output: failures and summary only, no tree
+  -f, --fail-fast  Stop after the first test failure
   -h, --help       Show this help
 
 EXAMPLES:
   dotest                       Run all tests (summary tree + failures)
   dotest Portland.Worker       Run tests matching Portland.Worker
   dotest -c                    Compact: failures and summary only
+  dotest -f                    Stop on first failure
   dotest CreateBacktest -v     Full tree for matching tests
 ```
 
@@ -109,6 +112,16 @@ Portland
 └── Worker.Test
     └── CreateBacktestTests
         └── ✗  1.2s ShouldReturnPositions
+```
+
+### Fail-fast (`-f`)
+
+Stops the run after the first failing test and prints the failure box immediately.
+No tree is shown since the run is incomplete.
+
+```sh
+dotest -f
+dotest Portland.Worker -f
 ```
 
 ### Filter
